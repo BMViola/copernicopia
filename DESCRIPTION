@@ -1,0 +1,36 @@
+Package: copernicopia
+Type: Package
+Title: Download Copernicus Marine Data and Append It to Your Own Data
+Version: 0.1.0
+Authors@R:
+    person("Benjamin", "Viola", email = "benjamin.viola@utas.edu.au",
+           role = c("aut", "cre"))
+Description: An interactive, step-by-step interface to the Copernicus Marine
+    Service. Log in, pick environmental variables from the full Copernicus
+    Marine catalogue, choose a product for each, set a region and time period,
+    download the matching NetCDF files, and append the values to a data frame
+    of locations and times. Uses the official 'copernicusmarine' Python
+    toolbox through 'reticulate'.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Depends:
+    R (>= 4.1)
+Imports:
+    askpass,
+    processx (>= 3.5.0),
+    reticulate (>= 1.34),
+    tools,
+    utils
+Suggests:
+    callr,
+    pkgload,
+    testthat (>= 3.1.7),
+    withr
+Config/testthat/edition: 3
+SystemRequirements: Python (>= 3.9) with the 'copernicusmarine' package
+    (>= 2.0). Installed automatically by 'reticulate' (>= 1.41) or with
+    cmems_install().
+URL: https://github.com/BMViola/copernicopia
+BugReports: https://github.com/BMViola/copernicopia/issues
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.1
