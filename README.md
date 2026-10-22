@@ -4,6 +4,28 @@ Download [Copernicus Marine](https://marine.copernicus.eu/) data from R and appe
 
 Copernicopia (Copernicus cornucopia) walks you through logging in, choosing variables from the full Copernicus Marine catalogue, picking a product for each, setting a region and time period, downloading the NetCDF files and adding the values to a data frame of locations and times. I built this (clarified/debugged/tested it with Claude, before testing it with Peter Allen (Monash University)) so that marine ecologists and biological oceanographers had an easier time dealing with satellite data. Many of us spend hours headbutting walls in this space... And I had already written a py script ([BMViola/Copernicus-Bulk-Files](https://github.com/BMViola/Copernicus-Bulk-Files))... So I figured we could work it in to a package and make it work for any dataset with xyt values. In the background it uses the official [`copernicusmarine`](https://pypi.org/project/copernicusmarine/) Python toolbox through [reticulate](https://rstudio.github.io/reticulate/).
 
+## Citing Copernicopia
+
+If Copernicopia helps your work, please cite it:
+
+> Viola, B. (2026). *Copernicopia: Download Copernicus Marine Data and Append It to Your Own Data*. R package version 0.1.0. https://github.com/BMViola/copernicopia
+
+In BibTeX:
+
+```bibtex
+@Manual{Copernicopia,
+  title  = {Copernicopia: Download Copernicus Marine Data and Append It to Your Own Data},
+  author = {Benjamin Viola},
+  year   = {2026},
+  note   = {R package version 0.1.0},
+  url    = {https://github.com/BMViola/copernicopia},
+}
+```
+
+You can also get this citation in R with `citation("copernicopia")`.
+
+Please also cite the Copernicus Marine products you used; see [Citing the data](#citing-the-data).
+
 ## Installation
 
 ```r
@@ -15,11 +37,11 @@ You also need a free [Copernicus Marine account](https://data.marine.copernicus.
 
 ### Python
 
-copernicopia needs Python with `copernicusmarine` version 2 or later.
+Copernicopia needs Python with `copernicusmarine` version 2 or later.
 
-- **reticulate 1.41 or later:** nothing to do. The Python environment is set up automatically the first time it's needed.
+- **reticulate 1.41 or later:** there's nothing you need to do. The Python environment is set up automatically the first time it's needed.
 - **Older reticulate:** run `copernicopia::cmems_install_python()` once, then restart R.
-- **Existing conda environment** (for example one made with `conda create -n cmems -c conda-forge copernicusmarine`): run `reticulate::use_condaenv("cmems")` at the start of your R session, before any copernicopia function.
+- **Existing conda environment** (for example one made with `conda create -n cmems -c conda-forge copernicusmarine`): run `reticulate::use_condaenv("cmems")` at the start of your R session, before any Copernicopia function.
 
 ## Quick start
 
@@ -224,7 +246,7 @@ Copernicus Marine products are cited by their DOI; datasets do not have DOIs of 
   copernicopia::cmems_abort()
   ```
 
-  or, from a terminal, `Rscript -e "copernicopia::cmems_abort()"`. This cancels every running copernicopia download on your computer. Each Python download process checks for the stop signal twice a second and closes itself; one that is too stuck to respond is force-stopped after 5 seconds.
+  or, from a terminal, `Rscript -e "copernicopia::cmems_abort()"`. This cancels every running Copernicopia download on your computer. Each Python download process checks for the stop signal twice a second and closes itself; one that is too stuck to respond is force-stopped after 5 seconds.
 
 Either way, files that finished downloading are kept and partly downloaded files are removed. Run `cmems_download()` again to resume where it stopped.
 
