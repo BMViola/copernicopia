@@ -279,3 +279,4 @@ Data are provided by the Copernicus Marine Service. Run `cmems_getreadme()` for 
 ## Author
 
 Benjamin Viola, Institute for Marine and Antarctic Studies, University of Tasmania, and Monash University, Australia
+benjamin.viola@utas.edu.au
