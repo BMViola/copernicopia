@@ -1,8 +1,10 @@
 # Copernicopia
 
+PLEASE NOTE THIS IS IN A TESTING PHASE
+
 Download [Copernicus Marine](https://marine.copernicus.eu/) data from R and append it to your own data, one guided step at a time.
 
-Copernicopia (Copernicus cornucopia) walks you through logging in, choosing variables from the full Copernicus Marine catalogue, picking a product for each, setting a region and time period, downloading the NetCDF files and adding the values to a data frame of locations and times. I built this (clarified/debugged/tested it with Claude, before testing it with some of the REC Laboratory (Monash University) members: Peter Allen) so that marine ecologists and biological oceanographers had an easier time dealing with satellite data. Many of us spend hours headbutting walls in this space... And I had already written a py script ([BMViola/Copernicus-Bulk-Files](https://github.com/BMViola/Copernicus-Bulk-Files))... So I figured we could work it in to a package and make it work for any dataset with xyt values. In the background it uses the official [`copernicusmarine`](https://pypi.org/project/copernicusmarine/) Python toolbox through [reticulate](https://rstudio.github.io/reticulate/).
+Copernicopia (Copernicus cornucopia) walks you through logging in, choosing variables from the full Copernicus Marine catalogue, picking a product for each, setting a region and time period, downloading the NetCDF files and adding the values to a data frame of locations and times. I built this (clarified/debugged/tested it with Claude, before testing it with some of the REC Laboratory (Monash University) members: Peter Allen, UPDATE AS OTHERS TEST IT) so that marine ecologists and biological oceanographers had an easier time dealing with satellite data. Many of us spend hours headbutting walls in this space... And I had already written a py script ([BMViola/Copernicus-Bulk-Files](https://github.com/BMViola/Copernicus-Bulk-Files))... So I figured we could work it in to a package and make it work for any dataset with xyt values. In the background it uses the official [`copernicusmarine`](https://pypi.org/project/copernicusmarine/) Python toolbox through [reticulate](https://rstudio.github.io/reticulate/).
 
 ## Citing Copernicopia
 
