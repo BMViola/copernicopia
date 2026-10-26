@@ -47,6 +47,8 @@ Copernicopia needs Python with `copernicusmarine` version 2 or later.
 
 ## Quick start
 
+**Most users should start with the wizard.** `cmems_wizard()` walks you through every step, suggests defaults from your own data, and only lists products that cover your area. If you need finer control, build the request yourself with `cmems_request()` (see [Reproducible scripts and finer control](#reproducible-scripts-and-finer-control)).
+
 ```r
 library(copernicopia)
 
@@ -65,12 +67,12 @@ The wizard asks you to:
 |------|-------------|
 | **A** | Log in (first time only; your credentials are saved; the password will be blank as you enter it, but type it as you would and press enter) |
 | **B** | Choose variables from a shortlist (SST, sea level, chlorophyll, sea ice...) or search every variable in the catalogue, using plain words or common abbreviations (see [Choosing variables](#choosing-variables)) |
-| **C** | Pick a product for each variable from a numbered list. Type text to filter the list, e.g. `nrt`, `P1D` or `GLO` |
+| **C** | Pick a product for each variable from a numbered list. Type text to filter the list, e.g. `nrt`, `P1D` or `GLO`, or `0` to skip a variable. With your own data, only products covering its area are listed; type `ALL` to see the rest |
 | **D** | Set the region's edges. It can cross the 180° meridian (see [Regions that cross 180°](#regions-that-cross-180)) |
 | **E** | Set the time period, how to split the download into files (one per day, month or year, or a single file), and a depth range for 3D products |
 | **F** | Check the download size, download, and append the values to your data |
 
-When you pass your own data, the region and dates default to its extent and products that cover your dates are listed first. Press Enter to accept any default shown in `[brackets]`.
+When you pass your own data, the region and dates default to its extent. In step C, only products whose area overlaps your data are listed, with those that cover your dates first. Press Enter to accept any default shown in `[brackets]`.
 
 Run `cmems_wizard()` with no data to just download files.
 
@@ -90,12 +92,13 @@ Enter number(s) separated by commas, S to search or A to list all: 1, 14
 
 C. Choose a product for each variable
 -------------------------------------
-Products with Sea surface temperature (34):
+Products with Sea surface temperature covering your data's area (12):
 [1] METOFFICE-GLO-SST-L4-NRT-OBS-SST-V2  [covers your dates]
-     analysed_sst | daily | 2007-01-01 to 2026-10-20 | 0.05° 
+     analysed_sst | daily | 2007-01-01 to 2026-10-20 | 0.05°
      Global Ocean OSTIA Sea Surface Temperature and Sea Ice Analysis
 ...
-Enter a number, or type text to filter the list (Enter shows all):
+(24 products outside your data's area are hidden; type ALL to show them.)
+Enter a number, type text to filter the list (Enter shows all), or 0 to skip this variable:
 ```
 
 ## Choosing variables
@@ -105,6 +108,7 @@ In step B, pick from the shortlist by number, or type `S` to search every variab
 - **A shortlist entry's name**, in full or in part, such as `mixed layer depth`, `dissolved oxygen`, `sea level` or `carbonate system`. This finds the same variables as picking the entry by number.
 - **The abbreviations below**, and the full names of the abbreviated variables, such as `sea level anomaly` or `significant wave height`.
 - **Plain words**, matched against any part of a variable's name, such as `temperature`, `ice` or `thetao`.
+- **A variable's short name**, such as `analysis_error`. If products file that name under different standard names, the first result offers them all together.
 
 Case, spaces and punctuation are ignored, so `chla`, `Chl-a` and `chl a` are the same. Type `A` to list every variable in the catalogue.
 
@@ -137,7 +141,7 @@ Case, spaces and punctuation are ignored, so `chla`, `Chl-a` and `chl a` are the
 
 An abbreviation also finds any variable whose short name is exactly that term, such as `o2` or `no3` in biogeochemistry models. Short abbreviations like `ph`, `do` and `pp` only find their own variables, so `ph` doesn't bring up phosphate or phytoplankton.
 
-## Reproducible scripts
+## Reproducible scripts and finer control
 
 At the end, the wizard prints the code for the request it built, for example:
 
@@ -163,6 +167,14 @@ cmems_download(req)                   # download
 obs <- cmems_extract(obs, req)        # append values to your data
 cmems_sources(obs)                    # which dataset each new column came from
 ```
+
+`cmems_request()` also gives you control the wizard doesn't:
+
+- **Rerun without prompts**, for example in a pipeline or on a server.
+- **Choose any dataset and variables by ID**, including ones you find with `cmems_catalogue()`.
+- **Set a different depth range for each dataset**, with `depth = list("dataset_id" = c(0, 50), ...)`.
+- **Append the same downloads to other data frames** with `cmems_extract()`, without downloading again.
+- **Keep the dataset time each value was matched to**, with `cmems_extract(..., keep_matched_time = TRUE)`.
 
 ## Regions that cross 180°
 
