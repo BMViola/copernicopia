@@ -306,3 +306,24 @@ test_that("the toolbox's false alarm about regions crossing 180 on global grids 
   expect_equal(copernicopia:::.useful_toolbox_warnings(w, regional), w)
   expect_equal(copernicopia:::.useful_toolbox_warnings(w, list()), w)
 })
+
+test_that("data finer than daily get one extra time step at each end of the period", {
+  cat_df <- fake_catalogue()
+  cat_df$time_step_hours[cat_df$dataset_id == "synth_old_P1D"] <- 1
+  cat_df$time_start[cat_df$dataset_id == "synth_old_P1D"] <- "2025-01-01T00:00:00"
+  cat_df$time_end[cat_df$dataset_id == "synth_old_P1D"] <- "2025-12-31T23:00:00"
+  req <- cmems_request(list("synth_old_P1D" = "analysed_sst"), c(100, 160), c(-70, -30),
+                       c("2025-07-10", "2025-08-20"), out_dir = tempdir(), catalogue = cat_df)
+  e <- req$datasets[[1]]
+  chunks <- copernicopia:::.time_chunks(req$time, e$time_step_hours, req$chunk)
+  times <- lapply(seq_len(nrow(chunks)), function(i) copernicopia:::.chunk_times(req, e, chunks[i, ]))
+  # Hourly, by month: July starts an hour early, August ends an hour late; they meet without overlap
+  expect_equal(times[[1]], c("2025-07-09T23:00:00", "2025-07-31T23:59:59"))
+  expect_equal(times[[2]], c("2025-08-01T00:00:00", "2025-08-21T00:59:59"))
+  # Daily data are unchanged
+  req_d <- cmems_request(list("synth_phy_P1D-m" = "zos"), c(100, 160), c(-70, -30),
+                         c("2025-07-10", "2025-08-20"), out_dir = tempdir(), catalogue = fake_catalogue())
+  e_d <- req_d$datasets[[1]]
+  ch_d <- copernicopia:::.time_chunks(req_d$time, e_d$time_step_hours, req_d$chunk)
+  expect_equal(copernicopia:::.chunk_times(req_d, e_d, ch_d[1, ]), c("2025-07-10T00:00:00", "2025-07-31T23:59:59"))
+})
