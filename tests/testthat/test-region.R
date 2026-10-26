@@ -141,3 +141,47 @@ test_that("the wizard double-checks a wide region crossing 180", {
   expect_true(any(grepl("That region is 320", out)))
   expect_true(any(grepl("enter 110 as the western edge and 150 as the eastern edge", out)))
 })
+
+test_that("regions reaching past a dataset's outermost grid points are cut back to them", {
+  cat_df <- fake_catalogue()
+  cat_df$lon_min <- -179.97500610351562
+  cat_df$lon_max <- 179.97500610351562
+  cat_df$lat_min <- -89.97500610351562
+  cat_df$lat_max <- 89.97500610351562
+  cat_df$lon_step <- cat_df$lat_step <- 0.05
+  make <- function(lon, lat, catalogue = cat_df) {
+    r <- cmems_request(list("synth_old_P1D" = "analysed_sst"), lon, lat,
+                       c("1995-01-01", "1995-01-31"), out_dir = tempdir(), catalogue = catalogue)
+    copernicopia:::.padded_bounds(r, r$datasets[[1]])
+  }
+  # All longitudes: the grid's own edges, so the toolbox has nothing to warn about
+  b <- make(c(-180, 180), c(-80, -15))
+  expect_equal(b$lon, c(-179.97500610351562, 179.97500610351562))
+  expect_equal(b$lat, c(-80.05, -14.95))
+  # Latitudes past the poles of the grid
+  expect_equal(make(c(100, 160), c(-90, 90))$lat, c(-89.97500610351562, 89.97500610351562))
+  # Partial and crossing regions keep their padding
+  expect_equal(make(c(100, 160), c(-70, -30))$lon, c(99.95, 160.05))
+  expect_equal(make(c(170, -170), c(-70, -30))$lon, c(169.95, 190.05))
+  # Grids written from 0 to 360 are left to the toolbox
+  cat360 <- cat_df
+  cat360$lon_min <- 0.025
+  cat360$lon_max <- 359.975
+  expect_equal(make(c(-180, 180), c(-80, -15), cat360)$lon, c(-180, 180))
+  # Requests made before the edges were stored are padded as before
+  r <- cmems_request(list("synth_old_P1D" = "analysed_sst"), c(-180, 180), c(-90, 90),
+                     c("1995-01-01", "1995-01-31"), out_dir = tempdir(), catalogue = cat_df)
+  old <- r$datasets[[1]]
+  old[c("lon_min", "lon_max", "lat_min", "lat_max")] <- NULL
+  b_old <- copernicopia:::.padded_bounds(r, old)
+  expect_equal(b_old$lon, c(-180, 180))
+  expect_equal(b_old$lat, c(-90, 90))
+})
+
+test_that("a request covering all longitudes prints plainly", {
+  r <- cmems_request(list("synth_old_P1D" = "analysed_sst"), c(-180, 180), c(-80, -15),
+                     c("1995-01-01", "1995-01-31"), out_dir = tempdir(),
+                     catalogue = fake_catalogue())
+  out <- capture.output(print(r))
+  expect_true(any(grepl("Region: all longitudes; latitude -80 to -15", out, fixed = TRUE)))
+})

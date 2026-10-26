@@ -161,3 +161,25 @@ test_that("searching by a shortlist name lists that entry's variables", {
   expect_equal(out[1], "Searching for Sea ice concentration.")
   expect_match(out[2], "sea_ice_area_fraction (ice_conc; 2 products)", fixed = TRUE)
 })
+
+test_that("a variable name filed under several standard names can be picked as one", {
+  cat_df <- fake_catalogue()
+  err <- cat_df[cat_df$dataset_id == "synth_old_P1D", ][c(1, 1), ]
+  err$dataset_id <- c("ostia_like_P1D", "regional_P1D")
+  err$variable <- "analysis_error"
+  err$standard_name <- c("sea_surface_foundation_temperature standard_error", "")
+  cat_df <- rbind(cat_df, err)
+  withr::local_options(copernicopia.input = function(prompt) "1")
+  out <- capture.output(res <- copernicopia:::.pick_standard_names(cat_df, "analysis_error"))
+  expect_match(out[1],
+               "[1] All variables named analysis_error, whatever their standard name (2 products)",
+               fixed = TRUE)
+  expect_match(out[2], "[2] analysis_error (analysis_error; 1 product)", fixed = TRUE)
+  expect_match(out[3], "[3] sea_surface_foundation_temperature standard_error (analysis_error; 1 product)",
+               fixed = TRUE)
+  expect_equal(res[[1]]$label, "analysis_error (any standard name)")
+  expect_setequal(cat_df$dataset_id[res[[1]]$rows], c("ostia_like_P1D", "regional_P1D"))
+  # A name under only one standard name needs no extra choice
+  out2 <- capture.output(copernicopia:::.pick_standard_names(cat_df, "thetao"))
+  expect_false(any(grepl("All variables named", out2)))
+})

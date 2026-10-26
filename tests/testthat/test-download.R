@@ -104,6 +104,28 @@ test_that("a dry run downloads nothing and estimates the size", {
   expect_true(isTRUE(tb$calls()[[1]]$dry_run))
 })
 
+test_that("toolbox warnings in a dry run are shown on their own lines", {
+  skip_if_no_python()
+  logging <- reticulate::import("logging")
+  logger <- logging$getLogger("copernicusmarine")
+  n_handlers <- length(logger$handlers)
+  tb <- list(subset = function(...) {
+    logging$getLogger("copernicusmarine")$warning("Something about the time range")
+    list(file_size = 12.5)
+  })
+  local_mocked_bindings(.cm = function() tb)
+  req <- cmems_request(list("synth_phy_P1D-m" = "zos"), c(100, 160), c(-70, -30),
+                       c("2025-07-01", "2025-07-31"), out_dir = withr::local_tempdir(),
+                       catalogue = fake_catalogue())
+  msgs <- capture_messages(capture.output(cmems_download(req, dry_run = TRUE)))
+  all <- paste(msgs, collapse = "")
+  expect_match(all, "Checking 1/1: synth_phy_P1D-m ... ok\n", fixed = TRUE)
+  expect_match(all, "ok\n  Note from the Copernicus Marine toolbox: Something about the time range",
+               fixed = TRUE)
+  # The toolbox's own logging is put back afterwards
+  expect_length(logger$handlers, n_handlers)
+})
+
 test_that("live progress shows a timer and size while each file downloads", {
   skip_if_no_python()
   use_fake_worker_toolbox()
@@ -273,4 +295,14 @@ test_that("cmems_abort() force-stops a stuck worker when R is not responding", {
   expect_false(worker$is_alive())
   # The leftover control folder is tidied away once it goes quiet
   unlink(control, recursive = TRUE)
+})
+
+test_that("the toolbox's false alarm about regions crossing 180 on global grids is dropped", {
+  w <- c("Some of your subset selection [76.45, -71.45] for the longitude dimension exceed the dataset coordinates [-179.975, 179.975]",
+         "Some of your subset selection [2026-01-01, 2026-12-31] for the time dimension exceed the dataset coordinates [2024-01-17, 2026-10-24]")
+  global <- list(lon_min = -179.975, lon_max = 179.975, lon_step = 0.05)
+  regional <- list(lon_min = -6, lon_max = 36.5, lon_step = 0.05)
+  expect_equal(copernicopia:::.useful_toolbox_warnings(w, global), w[2])
+  expect_equal(copernicopia:::.useful_toolbox_warnings(w, regional), w)
+  expect_equal(copernicopia:::.useful_toolbox_warnings(w, list()), w)
 })
