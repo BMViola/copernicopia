@@ -2,8 +2,9 @@
 #'
 #' Fetches the full Copernicus Marine catalogue and returns one row per
 #' dataset and variable, for gridded datasets with latitude, longitude and
-#' time axes. Fetching takes a minute or two, so the table is cached on disk
-#' and reused until it is `max_age_days` old.
+#' time axes. Fetching takes a few minutes, so the table is cached on disk
+#' and reused until it is `max_age_days` old. While it is fetched, a timer
+#' shows it is still working; press Esc to stop.
 #'
 #' @param refresh If `TRUE`, fetch a fresh copy even if a cached one exists.
 #' @param max_age_days Age in days after which the cached copy is refreshed.
@@ -26,13 +27,70 @@ cmems_catalogue <- function(refresh = FALSE, max_age_days = 30) {
       return(.cmems$catalogue)
     }
   }
-  message("Fetching the Copernicus Marine catalogue (this takes a minute or two)...")
-  cat_df <- .columns_to_df(.helpers()$catalogue_table(disable_progress_bar = FALSE))
+  fetched <- .fetch_catalogue()
+  cat_df <- .columns_to_df(fetched$columns)
   if (nrow(cat_df) == 0) stop("The catalogue came back empty; try again later.", call. = FALSE)
+  skipped <- unlist(fetched$skipped)
+  if (length(skipped)) {
+    message(sprintf(
+      "Note: %d dataset%s left out because %s catalogue entr%s could not be read: %s",
+      length(skipped), if (length(skipped) == 1) " was" else "s were",
+      if (length(skipped) == 1) "its" else "their", if (length(skipped) == 1) "y" else "ies",
+      paste(skipped, collapse = ", ")))
+  }
   dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
   saveRDS(cat_df, cache_file)
   .cmems$catalogue <- cat_df
   cat_df
+}
+
+# Fetches the catalogue in a separate Python process (copernicopia_catalogue.py)
+# while showing a timer: the toolbox's own progress bars print a new line for
+# every update in the R console. Esc stops it. Returns list(columns, skipped).
+.fetch_catalogue <- function() {
+  .ensure_python()
+  out <- tempfile("catalogue_", fileext = ".json")
+  log <- tempfile("catalogue_", fileext = ".log")
+  proc <- processx::process$new(
+    reticulate::py_exe(),
+    c(system.file("python", "copernicopia_catalogue.py", package = "copernicopia"), out,
+      getOption("copernicopia.describe_function", "copernicusmarine:describe"),
+      getOption("copernicopia.python_path", character(0))),
+    stdout = NULL, stderr = log, cleanup = TRUE, cleanup_tree = TRUE, supervise = TRUE
+  )
+  status <- NULL
+  on.exit({
+    if (proc$is_alive()) {
+      proc$kill_tree()
+      if (!is.null(status)) status$finish("stopped")
+    }
+    unlink(c(out, log, paste0(out, ".part")))
+  }, add = TRUE)
+
+  prefix <- "Fetching the Copernicus Marine catalogue ... "
+  live <- .live_progress()
+  if (live) status <- .live_line(prefix)
+  if (!live) message(prefix, "(this takes a few minutes)")
+  started <- Sys.time()
+  elapsed <- function() as.numeric(difftime(Sys.time(), started, units = "secs"))
+  tick <- 0L
+  while (proc$is_alive()) {
+    proc$wait(500)
+    if (live) {
+      tick <- tick + 1L
+      status$update(sprintf("%s %s", .spinner(tick), .fmt_secs(elapsed())))
+    }
+  }
+  if (proc$get_exit_status() != 0 || !file.exists(out)) {
+    why <- if (file.exists(log)) readLines(log, warn = FALSE) else character(0)
+    why <- utils::tail(why[nzchar(trimws(why))], 1)
+    if (!length(why)) why <- sprintf("exit status %s", format(proc$get_exit_status()))
+    if (live) status$finish("failed")
+    stop("Could not fetch the Copernicus Marine catalogue: ", why, call. = FALSE)
+  }
+  done <- sprintf("done (%s). Saved for the next 30 days.", .fmt_secs(elapsed()))
+  if (live) status$finish(done) else message(done)
+  .helpers()$read_json(out)
 }
 
 .catalogue_columns <- c("product_id", "product_title", "product_doi", "dataset_id",

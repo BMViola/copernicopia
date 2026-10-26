@@ -321,6 +321,9 @@ cmems_download <- function(request, dry_run = FALSE, overwrite = FALSE) {
 
 # A console line that can be rewritten in place: update() replaces the text
 # after the prefix, finish() writes the final text and ends the line.
+# A line that wraps can no longer be rewritten (the carriage return only goes
+# back to the start of the last row), so updates are kept within the console
+# width by shortening the prefix; the final text is written in full.
 .live_line <- function(prefix) {
   width <- 0
   write <- function(text) {
@@ -328,14 +331,27 @@ cmems_download <- function(request, dry_run = FALSE, overwrite = FALSE) {
     width <<- nchar(text)
     utils::flush.console()
   }
-  write(prefix)
+  write(.fit_line(prefix, ""))
   list(
-    update = function(text) write(paste0(prefix, text)),
+    update = function(text) write(.fit_line(prefix, text)),
     finish = function(text) {
       write(paste0(prefix, text))
       cat("\n")
     }
   )
+}
+
+# prefix + text in at most one console row less one character, shortening the
+# middle of the prefix (e.g. a long file name) so the changing text stays whole.
+.fit_line <- function(prefix, text, width = getOption("width", 80)) {
+  room <- max(20L, as.integer(width) - 1L)
+  line <- paste0(prefix, text)
+  if (nchar(line) <= room) return(line)
+  keep <- room - nchar(text) - 3L
+  if (keep < 8L) return(substr(line, 1L, room))
+  head <- ceiling(keep / 2)
+  paste0(substr(prefix, 1L, head), "...",
+         substr(prefix, nchar(prefix) - (keep - head) + 1L, nchar(prefix)), text)
 }
 
 .spinner <- function(i) c("|", "/", "-", "\\")[i %% 4 + 1]
