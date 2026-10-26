@@ -41,9 +41,9 @@ cmems_download <- function(request, dry_run = FALSE, overwrite = FALSE) {
   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
   if (dry_run) {
     cm <- .cm()
-    restore <- .quiet_toolbox()
-    on.exit(restore(), add = TRUE)
-    return(.dry_run(request, cm))
+    toolbox_log <- .collect_toolbox_warnings()
+    on.exit(toolbox_log$restore(), add = TRUE)
+    return(.dry_run(request, cm, toolbox_log$take))
   }
 
   items <- .download_plan(request, overwrite)
@@ -382,6 +382,58 @@ cmems_download <- function(request, dry_run = FALSE, overwrite = FALSE) {
   function() try(logger$setLevel(old), silent = TRUE)
 }
 
+# During a dry run, the toolbox's warnings are collected rather than printed,
+# so they do not land in the middle of a "Checking ... ok" line; take() returns
+# (and clears) those collected so far, and restore() puts the toolbox's own
+# logging back. Without Python's logging module, nothing is collected.
+.collect_toolbox_warnings <- function() {
+  none <- list(take = function() character(0), restore = function() invisible())
+  modules <- tryCatch(
+    list(logging = reticulate::import("logging"),
+         handlers = reticulate::import("logging.handlers")),
+    error = function(e) NULL
+  )
+  if (is.null(modules)) return(none)
+  logger <- modules$logging$getLogger("copernicusmarine")
+  old <- list(level = logger$level, handlers = logger$handlers, propagate = logger$propagate)
+  buffer <- modules$handlers$BufferingHandler(10000L)
+  logger$handlers <- list(buffer)
+  logger$propagate <- FALSE
+  logger$setLevel(30L)
+  list(
+    take = function() {
+      msgs <- vapply(buffer$buffer, function(r) as.character(r$getMessage()), "")
+      buffer$flush()
+      msgs
+    },
+    restore = function() {
+      try({
+        logger$handlers <- old$handlers
+        logger$propagate <- old$propagate
+        logger$setLevel(old$level)
+      }, silent = TRUE)
+      invisible()
+    }
+  )
+}
+
+# The toolbox warns that a region crossing 180 "exceeds the dataset
+# coordinates" whenever a global grid's outermost points are not exactly at
+# -180/180 (e.g. -179.975 to 179.975). A global grid cannot be exceeded in
+# longitude, so for global grids that warning is dropped.
+.useful_toolbox_warnings <- function(msgs, e) {
+  lo <- .num_or_na(e$lon_min)
+  hi <- .num_or_na(e$lon_max)
+  step <- .num_or_na(e$lon_step)
+  global <- is.finite(lo) && is.finite(hi) &&
+    hi - lo + (if (is.finite(step)) step else 0) >= 359.9
+  if (global) {
+    msgs <- msgs[!grepl("for the longitude dimension exceed the dataset coordinates", msgs,
+                        fixed = TRUE)]
+  }
+  msgs
+}
+
 # Region padded by one grid cell, so cells that straddle the edge of the
 # requested region are included. (The toolbox's "outside" selection would do
 # this too, but it also widens the time range to the next time step, which
@@ -390,11 +442,40 @@ cmems_download <- function(request, dry_run = FALSE, overwrite = FALSE) {
 # Longitudes are passed as c(west, east) with east > west, e.g. c(169.5,
 # 190.5) for a region crossing 180. The toolbox then returns one continuous
 # grid running from 169.5 to 190.5.
+#
+# Where the region reaches past the dataset's outermost grid points (all
+# longitudes, or latitudes beyond the grid), it is cut back to them: the same
+# grid cells are selected, and the toolbox does not warn that the selection
+# "exceeds the dataset coordinates".
 .padded_bounds <- function(request, e) {
   step <- function(x) if (is.null(x) || is.na(x) || x <= 0) 0.25 else x
   lon <- .lon_pad(request$lon, step(e$lon_step))
   lat <- request$lat + c(-1, 1) * step(e$lat_step)
-  list(lon = lon, lat = pmin(pmax(lat, -90), 90))
+  lat <- pmin(pmax(lat, -90), 90)
+
+  edges <- function(lo, hi) {
+    lo <- .num_or_na(lo)
+    hi <- .num_or_na(hi)
+    if (is.finite(lo) && is.finite(hi) && lo < hi) c(lo, hi) else NULL
+  }
+  lat_edges <- edges(e$lat_min, e$lat_max)
+  if (!is.null(lat_edges)) {
+    cut <- c(max(lat[1], lat_edges[1]), min(lat[2], lat_edges[2]))
+    if (cut[1] <= cut[2]) lat <- cut
+  }
+  # Only for grids written from -180 to 180; 0-360 grids are left to the toolbox
+  lon_edges <- edges(e$lon_min, e$lon_max)
+  if (!is.null(lon_edges) && lon[1] == -180 && lon[2] == 180 &&
+      lon_edges[1] >= -180 && lon_edges[2] <= 180) {
+    lon <- lon_edges
+  }
+  list(lon = lon, lat = lat)
+}
+
+# A single number, or NA (also for NULL, from requests made by older versions)
+.num_or_na <- function(x) {
+  x <- suppressWarnings(as.numeric(x))
+  if (length(x) == 0) NA_real_ else x[1]
 }
 
 .note_chunk <- function(chunk, e) {
@@ -429,7 +510,7 @@ cmems_download <- function(request, dry_run = FALSE, overwrite = FALSE) {
   args
 }
 
-.dry_run <- function(request, cm) {
+.dry_run <- function(request, cm, take_warnings = function() character(0)) {
   n <- length(request$datasets)
   rows <- lapply(seq_len(n), function(i) {
     e <- request$datasets[[i]]
@@ -442,6 +523,9 @@ cmems_download <- function(request, dry_run = FALSE, overwrite = FALSE) {
       error = function(err) err
     )
     message(if (inherits(res, "error")) "problem" else "ok")
+    for (w in .useful_toolbox_warnings(take_warnings(), e)) {
+      message("  Note from the Copernicus Marine toolbox: ", w)
+    }
     if (inherits(res, "error")) {
       return(data.frame(dataset_id = e$dataset_id, ok = FALSE, files = nrow(chunks),
                         mb_per_file = NA_real_, total_mb = NA_real_,

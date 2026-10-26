@@ -277,10 +277,17 @@ cmems_variables <- function() {
 }
 
 # One row per dataset for the catalogue rows in `rows`, with the matched
-# variables collapsed, ready to show as a numbered list.
-.dataset_summary <- function(cat_df, rows, period = NULL) {
+# variables collapsed, ready to show as a numbered list. With `area` (the
+# extent of the user's data: list(lon = c(west, east), lat = c(south, north))),
+# `in_area` says whether each dataset's grid overlaps it.
+.dataset_summary <- function(cat_df, rows, period = NULL, area = NULL) {
   sub <- cat_df[rows, , drop = FALSE]
   ids <- unique(sub$dataset_id)
+  edge <- function(d, col, f) {
+    v <- if (col %in% names(d)) suppressWarnings(as.numeric(d[[col]])) else numeric(0)
+    v <- v[is.finite(v)]
+    if (length(v)) f(v) else NA_real_
+  }
   out <- do.call(rbind, lapply(ids, function(id) {
     d <- sub[sub$dataset_id == id, , drop = FALSE]
     data.frame(
@@ -293,21 +300,52 @@ cmems_variables <- function() {
       time_step_hours = d$time_step_hours[1],
       resolution = d$lat_step[1],
       has_depth = any(d$has_depth),
+      lon_min = edge(d, "lon_min", min), lon_max = edge(d, "lon_max", max),
+      lat_min = edge(d, "lat_min", min), lat_max = edge(d, "lat_max", max),
+      lon_step = edge(d, "lon_step", max), lat_step = edge(d, "lat_step", max),
       stringsAsFactors = FALSE
     )
   }))
+  out$in_area <- NA
+  if (!is.null(area)) out$in_area <- .overlaps_area(out, area)
   out$covers <- NA
   if (!is.null(period)) {
     start <- as.Date(substr(out$time_start, 1, 10))
     end <- as.Date(substr(out$time_end, 1, 10))
     out$covers <- !is.na(start) & !is.na(end) &
       start <= period[1] & end >= period[2]
-    out <- out[order(!out$covers, out$dataset_id), , drop = FALSE]
-  } else {
-    out <- out[order(out$dataset_id), , drop = FALSE]
   }
+  # Products covering the data's area first, then those covering its dates
+  outside <- if (is.null(area)) rep(FALSE, nrow(out)) else !out$in_area
+  late <- if (is.null(period)) rep(FALSE, nrow(out)) else !out$covers
+  out <- out[order(outside, late, out$dataset_id), , drop = FALSE]
   rownames(out) <- NULL
   out
+}
+
+# Whether each dataset in `d` (lon_min, lon_max, lat_min, lat_max, lon_step,
+# lat_step) overlaps `area`, allowing one grid cell of margin. Longitudes are
+# compared as arcs round the globe, so either can cross 180 and grids written
+# from 0 to 360 work too. A dataset whose extent is unknown counts as
+# overlapping, so nothing is hidden by mistake.
+.overlaps_area <- function(d, area) {
+  margin <- function(step) ifelse(is.finite(step) & step > 0, step, 0)
+  lat_known <- is.finite(d$lat_min) & is.finite(d$lat_max)
+  lat_ok <- !lat_known |
+    (d$lat_max + margin(d$lat_step) >= area$lat[1] &
+       d$lat_min - margin(d$lat_step) <= area$lat[2])
+  area_west <- area$lon[1]
+  area_width <- .lon_width(area$lon)
+  lon_ok <- vapply(seq_len(nrow(d)), function(i) {
+    if (!is.finite(d$lon_min[i]) || !is.finite(d$lon_max[i])) return(TRUE)
+    pad <- margin(d$lon_step[i])
+    width <- d$lon_max[i] - d$lon_min[i] + 2 * pad
+    if (width >= 360 || area_width >= 360) return(TRUE)
+    west <- d$lon_min[i] - pad
+    # Two arcs meet when either one starts inside the other
+    ((area_west - west) %% 360) <= width || ((west - area_west) %% 360) <= area_width
+  }, logical(1))
+  lat_ok & lon_ok
 }
 
 # Degree sign, or "deg" on consoles that cannot show it.
@@ -316,6 +354,7 @@ cmems_variables <- function() {
 .format_dataset_line <- function(i, d) {
   res <- if (is.na(d$resolution)) "?" else sprintf("%.3g%s", d$resolution, .deg())
   cover <- if (isTRUE(d$covers)) "  [covers your dates]" else ""
+  if (isFALSE(d$in_area)) cover <- paste0(cover, "  [outside your data's area]")
   sprintf("[%d] %s%s\n     %s | %s | %s to %s | %s%s\n     %s\n",
           i, d$dataset_id, cover,
           d$variables, .step_label(d$time_step_hours),

@@ -64,10 +64,12 @@ cmems_wizard <- function(data = NULL, lon = NULL, lat = NULL, time = NULL,
     .rule("Your data")
     cols <- .wizard_columns(data, lon, lat, time)
     extent <- .data_extent(data, cols, depth)
+    shown_lon <- round(extent$lon, 2)
     cat(sprintf("%d rows: longitude %s; latitude %g to %g; %s to %s\n", nrow(data),
-                if (extent$lon[1] == extent$lon[2]) .lon_deg(extent$lon[1])
-                else .lon_label(extent$lon),
-                extent$lat[1], extent$lat[2], extent$time[1], extent$time[2]))
+                if (shown_lon[1] == shown_lon[2]) .lon_deg(shown_lon[1])
+                else .lon_label(shown_lon),
+                round(extent$lat[1], 2), round(extent$lat[2], 2),
+                extent$time[1], extent$time[2]))
   }
 
   .rule("A. Log in")
@@ -79,9 +81,18 @@ cmems_wizard <- function(data = NULL, lon = NULL, lat = NULL, time = NULL,
 
   .rule("C. Choose a product for each variable")
   picks <- list()
+  area <- NULL
+  if (!is.null(extent) && all(is.finite(c(extent$lon, extent$lat)))) {
+    area <- list(lon = extent$lon, lat = extent$lat)
+  }
   for (s in selections) {
-    p <- .choose_dataset(catalogue, s, extent$time)
+    p <- .choose_dataset(catalogue, s, extent$time, area)
+    if (is.null(p)) next
     picks[[p$dataset_id]] <- union(picks[[p$dataset_id]], p$variables)
+  }
+  if (length(picks) == 0) {
+    cat("No products were chosen, so there is nothing to download.\n")
+    return(invisible(NULL))
   }
 
   .rule("D. Region")
@@ -94,8 +105,15 @@ cmems_wizard <- function(data = NULL, lon = NULL, lat = NULL, time = NULL,
 
   .rule("F. Download")
   out_dir <- .ask_text("Folder for the downloaded files: ", default = out_dir)
-  req <- cmems_request(picks, bounds$lon, bounds$lat, period, depth = depth_range,
-                       chunk = chunk, out_dir = out_dir, catalogue = catalogue)
+  # Step D has already dealt with wide regions crossing 180, so the same note
+  # from cmems_request() is not repeated here
+  req <- withCallingHandlers(
+    cmems_request(picks, bounds$lon, bounds$lat, period, depth = depth_range,
+                  chunk = chunk, out_dir = out_dir, catalogue = catalogue),
+    message = function(m) {
+      if (startsWith(conditionMessage(m), "Note: lon = ")) invokeRestart("muffleMessage")
+    }
+  )
   cat("\n")
   print(req)
   cat("\n")
@@ -170,7 +188,8 @@ cmems_wizard <- function(data = NULL, lon = NULL, lat = NULL, time = NULL,
     length(unique(catalogue$dataset_id[grepl(p, catalogue$standard_name, ignore.case = TRUE)]))
   }, numeric(1))
   cat("Common variables:\n")
-  cat(sprintf("[%2d] %-48s %s\n", seq_len(nrow(groups)), groups$label,
+  cat(sprintf("[%2d] %s %s\n", seq_len(nrow(groups)),
+              formatC(groups$label, width = -max(nchar(groups$label))),
               ifelse(n_ds > 0, sprintf("(%d product%s)", n_ds, ifelse(n_ds == 1, "", "s")),
                      "(none available)")), sep = "")
   cat("[ S] Search all variables by keyword\n")
@@ -235,36 +254,86 @@ cmems_wizard <- function(data = NULL, lon = NULL, lat = NULL, time = NULL,
     cat("No variables match that search.\n")
     return(list())
   }
-  info <- vapply(found, function(k) {
-    rows <- key == k
+  n_products <- function(rows) {
     n <- length(unique(catalogue$dataset_id[rows]))
-    sprintf("(%s; %d product%s)", paste(utils::head(unique(catalogue$variable[rows]), 3),
-                                        collapse = ", "), n, if (n == 1) "" else "s")
-  }, character(1))
-  cat(sprintf("[%d] %s %s\n", seq_along(found), found, info), sep = "")
-  picks <- .ask_numbers("Enter number(s), or press Enter to go back: ", length(found),
+    sprintf("%d product%s", n, if (n == 1) "" else "s")
+  }
+  choices <- lapply(found, function(k) {
+    rows <- which(key == k)
+    list(label = k, rows = rows,
+         line = sprintf("%s (%s; %s)", k, paste(utils::head(unique(catalogue$variable[rows]), 3),
+                                                collapse = ", "), n_products(rows)))
+  })
+  # A variable name typed in full (e.g. analysis_error) may be filed under
+  # several standard names; offer all of them together as the first choice
+  if (!is.null(keyword)) {
+    same <- which(.normalise_term(catalogue$variable) == .normalise_term(keyword))
+    if (length(unique(key[same])) > 1) {
+      name <- catalogue$variable[same[1]]
+      choices <- c(list(list(
+        label = sprintf("%s (any standard name)", name), rows = same,
+        line = sprintf("All variables named %s, whatever their standard name (%s)",
+                       name, n_products(same))
+      )), choices)
+    }
+  }
+  cat(sprintf("[%d] %s\n", seq_along(choices), vapply(choices, `[[`, "", "line")), sep = "")
+  picks <- .ask_numbers("Enter number(s), or press Enter to go back: ", length(choices),
                         default = integer(0))
-  lapply(picks, function(i) list(label = found[i], rows = which(key == found[i])))
+  lapply(choices[picks], function(ch) list(label = ch$label, rows = ch$rows))
 }
 
 # Step C ---------------------------------------------------------------------
 
-.choose_dataset <- function(catalogue, selection, period = NULL) {
-  summ <- .dataset_summary(catalogue, selection$rows, period)
+.choose_dataset <- function(catalogue, selection, period = NULL, area = NULL) {
+  summ_all <- .dataset_summary(catalogue, selection$rows, period, area)
+  # With the user's data, only products whose area overlaps it are listed at
+  # first; ALL shows the rest
+  in_area <- if (is.null(area)) rep(TRUE, nrow(summ_all)) else summ_all$in_area
+  if (!any(in_area)) {
+    cat(sprintf("\nNone of the products with %s covers your data's area, so all are listed.\n",
+                selection$label))
+    in_area[] <- TRUE
+  }
+  summ <- summ_all[in_area, , drop = FALSE]
+  hidden <- function() nrow(summ_all) - nrow(summ)
+  hidden_note <- function(n) {
+    sprintf("(%d product%s outside your data's area %s hidden; type ALL to show %s.)\n",
+            n, if (n == 1) "" else "s", if (n == 1) "is" else "are",
+            if (n == 1) "it" else "them")
+  }
   shown <- summ
   repeat {
-    cat(sprintf("\nProducts with %s (%d):\n", selection$label, nrow(shown)))
+    cat(sprintf("\nProducts with %s%s (%d):\n", selection$label,
+                if (hidden() > 0) " covering your data's area" else "", nrow(shown)))
     for (i in seq_len(nrow(shown))) cat(.format_dataset_line(i, shown[i, ]))
-    answer <- .read_input(
-      "Enter a number, or type text to filter the list (Enter shows all): ")
+    if (hidden() > 0) cat(hidden_note(hidden()))
+    answer <- .read_input(if (nrow(shown) == 1) {
+      "Press Enter to choose it, type text to filter the list, or 0 to skip this variable: "
+    } else {
+      "Enter a number, type text to filter the list (Enter shows all), or 0 to skip this variable: "
+    })
+    if (hidden() > 0 && toupper(trimws(answer)) == "ALL") {
+      summ <- summ_all
+      shown <- summ
+      next
+    }
     if (!nzchar(answer)) {
+      if (nrow(shown) == 1) {
+        num <- 1L
+        break
+      }
       shown <- summ
       next
     }
     num <- .parse_numbers(answer)
     if (!is.null(num)) {
+      if (identical(as.integer(num), 0L)) {
+        cat(sprintf("Skipped %s.\n", selection$label))
+        return(NULL)
+      }
       if (length(num) == 1 && num >= 1 && num <= nrow(shown)) break
-      cat(sprintf("Please enter one number between 1 and %d.\n", nrow(shown)))
+      cat(sprintf("Please enter one number between 1 and %d, or 0 to skip.\n", nrow(shown)))
       next
     }
     text <- paste(summ$dataset_id, summ$product_title, summ$variables,
@@ -272,7 +341,17 @@ cmems_wizard <- function(data = NULL, lon = NULL, lat = NULL, time = NULL,
     hit <- grepl(tolower(answer), tolower(text), fixed = TRUE) |
       tryCatch(grepl(answer, text, ignore.case = TRUE), error = function(e) FALSE)
     if (!any(hit)) {
-      cat("Nothing matches that text; showing the full list.\n")
+      text_all <- paste(summ_all$dataset_id, summ_all$product_title)
+      n_elsewhere <- if (hidden() > 0) {
+        sum(grepl(tolower(answer), tolower(text_all), fixed = TRUE) & !summ_all$in_area)
+      } else 0
+      if (n_elsewhere > 0) {
+        cat(sprintf("Nothing in the list matches that text, but %d product%s outside your data's area %s; type ALL to show %s.\n",
+                    n_elsewhere, if (n_elsewhere == 1) "" else "s",
+                    if (n_elsewhere == 1) "does" else "do", if (n_elsewhere == 1) "it" else "them"))
+      } else {
+        cat("Nothing matches that text; showing the full list.\n")
+      }
       shown <- summ
     } else {
       shown <- summ[hit, , drop = FALSE]
@@ -327,8 +406,13 @@ cmems_wizard <- function(data = NULL, lon = NULL, lat = NULL, time = NULL,
       next
     }
     cat(sprintf("Longitude: %s\n", .lon_label(lon)))
-    # A wide region crossing 180 is more often two edges swapped by mistake
-    if (.lon_crosses_180(lon) && .lon_width(lon) > 180) {
+    # A wide region crossing 180 is more often two edges swapped by mistake,
+    # unless it is the region suggested from the data
+    from_data <- !is.null(dlon) && isTRUE(all.equal(lon, dlon))
+    if (from_data && .lon_crosses_180(lon) && .lon_width(lon) > 180) {
+      cat("That is the narrowest range of longitudes that covers all your data.\n")
+    }
+    if (!from_data && .lon_crosses_180(lon) && .lon_width(lon) > 180) {
       deg <- if (trimws(.deg()) == "deg") " degrees" else trimws(.deg())
       if (!.ask_yes_no(sprintf("That region is %s%s wide. Is that what you meant?",
                                format(round(.lon_width(lon), 4)), deg), FALSE)) {

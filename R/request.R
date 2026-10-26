@@ -76,6 +76,12 @@ cmems_request <- function(datasets, lon, lat, time, depth = c(0, 1),
     first <- function(col) {
       if (nrow(meta) > 0 && col %in% names(meta)) as.character(meta[[col]][1]) else NA_character_
     }
+    # The dataset's outermost grid points, so requests can be kept within them
+    edge <- function(col, f) {
+      v <- if (nrow(meta) > 0 && col %in% names(meta)) suppressWarnings(as.numeric(meta[[col]]))
+      v <- v[is.finite(v)]
+      if (length(v)) f(v) else NA_real_
+    }
     list(
       dataset_id = id,
       variables = vars,
@@ -89,6 +95,8 @@ cmems_request <- function(datasets, lon, lat, time, depth = c(0, 1),
       time_step_hours = if (nrow(meta) > 0) meta$time_step_hours[1] else NA_real_,
       lon_step = if (nrow(meta) > 0) meta$lon_step[1] else NA_real_,
       lat_step = if (nrow(meta) > 0) meta$lat_step[1] else NA_real_,
+      lon_min = edge("lon_min", min), lon_max = edge("lon_max", max),
+      lat_min = edge("lat_min", min), lat_max = edge("lat_max", max),
       has_depth = has_depth,
       depth = if (has_depth) as.numeric(d) else NULL,
       units = stats_setnames(units, vars)
@@ -155,7 +163,9 @@ print.cmems_request <- function(x, ...) {
                 .step_label(e$time_step_hours),
                 if (e$has_depth) sprintf(", depth %g-%g m", e$depth[1], e$depth[2]) else ""))
   }
-  cat(sprintf("  Region: longitude %s; latitude %g to %g\n", .lon_label(x$lon), x$lat[1], x$lat[2]))
+  cat(sprintf("  Region: %s; latitude %g to %g\n",
+              if (.lon_width(x$lon) == 360) "all longitudes" else paste("longitude", .lon_label(x$lon)),
+              x$lat[1], x$lat[2]))
   cat(sprintf("  Period: %s to %s\n", x$time[1], x$time[2]))
   cat(sprintf("  Files: %s\n", .chunk_label(x$chunk)))
   cat(sprintf("  Folder: %s\n", x$out_dir))
