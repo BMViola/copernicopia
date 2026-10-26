@@ -10,7 +10,7 @@ Copernicopia (Copernicus cornucopia) walks you through logging in, choosing vari
 
 If Copernicopia helps your work, please cite it:
 
-> Viola, B. (2026). *Copernicopia: Download Copernicus Marine Data and Append It to Your Own Data*. R package version 0.1.0. https://github.com/BMViola/copernicopia
+> Viola, B. (2026). *Copernicopia: Download Copernicus Marine Data and Append It to Your Own Data*. R package version 0.3.0. https://github.com/BMViola/copernicopia
 
 In BibTeX:
 
@@ -19,7 +19,7 @@ In BibTeX:
   title  = {Copernicopia: Download Copernicus Marine Data and Append It to Your Own Data},
   author = {Benjamin Viola},
   year   = {2026},
-  note   = {R package version 0.1.0},
+  note   = {R package version 0.3.0},
   url    = {https://github.com/BMViola/copernicopia},
 }
 ```
