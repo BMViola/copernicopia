@@ -486,16 +486,33 @@ cmems_download <- function(request, dry_run = FALSE, overwrite = FALSE) {
   }
 }
 
+# The first and last moments to download for one file. For data finer than
+# daily, the whole period is widened by one time step at each end, inside its
+# first and last files only, so every point in the period has its nearest time
+# step (e.g. 00:00 the next day for a point at 23:45 on the last day).
+.chunk_times <- function(request, e, chunk) {
+  start <- as.POSIXct(paste(format(chunk$start), "00:00:00"), tz = "UTC")
+  end <- as.POSIXct(paste(format(chunk$end), "23:59:59"), tz = "UTC")
+  step <- .num_or_na(e$time_step_hours)
+  if (is.finite(step) && step > 0 && step < 24) {
+    period <- .download_period(request$time, step)
+    if (chunk$start == period[1]) start <- start - step * 3600
+    if (chunk$end == period[2]) end <- end + step * 3600
+  }
+  format(c(start, end), "%Y-%m-%dT%H:%M:%S", tz = "UTC")
+}
+
 # Arguments for the toolbox's subset() for one file.
 .subset_args <- function(request, e, chunk, dir, filename, dry_run) {
   bounds <- .padded_bounds(request, e)
+  times <- .chunk_times(request, e, chunk)
   args <- list(
     dataset_id = e$dataset_id,
     variables = as.list(e$variables),
     minimum_longitude = bounds$lon[1], maximum_longitude = bounds$lon[2],
     minimum_latitude = bounds$lat[1], maximum_latitude = bounds$lat[2],
-    start_datetime = format(chunk$start, "%Y-%m-%dT00:00:00"),
-    end_datetime = format(chunk$end, "%Y-%m-%dT23:59:59"),
+    start_datetime = times[1],
+    end_datetime = times[2],
     coordinates_selection_method = "inside",
     output_directory = dir,
     output_filename = filename,
