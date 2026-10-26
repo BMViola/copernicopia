@@ -6,6 +6,7 @@ easier or faster in Python: flattening the Copernicus Marine catalogue into a
 table, and extracting values from downloaded NetCDF files at point locations.
 """
 
+import datetime as _dt
 import re
 
 import numpy as np
@@ -30,25 +31,49 @@ _UNIT_MS = {
 # ---------------------------------------------------------------------------
 
 
+# A date and optional time, with an optional time zone, anywhere in a string:
+# "1970-01-01", "1970-01-01 00:00:00Z", "1950-01-01T00:00:00.000+01:00", ...
+# Anything after it, such as "(no leap seconds)", is ignored.
+_DATETIME_RE = re.compile(
+    r"(\d{1,4})-(\d{1,2})-(\d{1,2})"
+    r"(?:[T\s]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}(?:\.\d*)?))?)?"
+    r"\s*(Z|UTC|GMT|[+-]\d{1,2}(?::?\d{2})?)?",
+    re.IGNORECASE,
+)
+_EPOCH = _dt.datetime(1970, 1, 1)
+
+
+def _datetime_to_ms(text):
+    """Milliseconds since 1970-01-01 UTC of a date-time written in `text`."""
+    m = _DATETIME_RE.search(text or "")
+    if not m:
+        raise ValueError(f"no date found in {text!r}")
+    day = _dt.datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    ms = (day - _EPOCH) / _dt.timedelta(milliseconds=1)
+    ms += ((int(m.group(4) or 0) * 60 + int(m.group(5) or 0)) * 60
+           + float(m.group(6) or 0)) * 1000.0
+    zone = m.group(7)
+    if zone and zone[0] in "+-":
+        digits = zone[1:].replace(":", "")
+        hours, minutes = (int(digits[:-2]), int(digits[-2:])) if len(digits) > 2 else (int(digits), 0)
+        ms -= (1 if zone[0] == "+" else -1) * (hours * 60 + minutes) * 60_000.0
+    return float(ms)
+
+
 def _unit_factor_and_origin(unit):
     """Milliseconds per unit and the origin (ms since epoch) of a CF time unit."""
     m = re.match(r"\s*(\w+?)s?\s+since\s+(.+)$", unit or "")
     if not m:
         return 1.0, 0.0  # catalogue default: milliseconds since 1970-01-01
     factor = _UNIT_MS.get(m.group(1).lower(), 1.0)
-    origin = pd.Timestamp(m.group(2).strip().rstrip("Z"))
-    origin_ms = (origin - pd.Timestamp("1970-01-01")) / pd.Timedelta(milliseconds=1)
-    return factor, float(origin_ms)
+    return factor, _datetime_to_ms(m.group(2))
 
 
 def _time_to_ms(value, unit):
     if value is None:
         return None
     if isinstance(value, str):
-        ts = pd.Timestamp(value)
-        if ts.tzinfo is not None:
-            ts = ts.tz_convert("UTC").tz_localize(None)
-        return float((ts - pd.Timestamp("1970-01-01")) / pd.Timedelta(milliseconds=1))
+        return _datetime_to_ms(value)
     factor, origin = _unit_factor_and_origin(unit)
     return float(value) * factor + origin
 
@@ -113,10 +138,55 @@ def _pick_service(part):
     return None
 
 
-def flatten_catalogue(catalogue):
+def _variable_row(product, dataset, version, part, var):
+    """The catalogue row for one variable, or None if it is not on a lat/lon/time grid."""
+    coords = {c.coordinate_id: c for c in var.coordinates}
+    if not {"latitude", "longitude", "time"} <= set(coords):
+        return None
+    t0, t1, t_step = _time_info(coords["time"])
+    lon0, lon1, lon_step, _ = _range_and_step(coords["longitude"])
+    lat0, lat1, lat_step, _ = _range_and_step(coords["latitude"])
+    depth = coords.get("depth") or coords.get("elevation")
+    d0 = d1 = n_depth = None
+    if depth is not None:
+        d0, d1, _, n_depth = _range_and_step(depth)
+    return dict(
+        product_id=product.product_id,
+        product_title=product.title,
+        product_doi=product.digital_object_identifier or "",
+        processing_level=product.processing_level,
+        production_center=product.production_center,
+        dataset_id=dataset.dataset_id,
+        dataset_name=dataset.dataset_name,
+        version=version.label,
+        part=part.name,
+        variable=var.short_name,
+        standard_name=var.standard_name or "",
+        units=var.units or "",
+        time_start=_ms_to_iso(t0),
+        time_end=_ms_to_iso(t1),
+        time_step_hours=t_step,
+        lon_min=lon0,
+        lon_max=lon1,
+        lat_min=lat0,
+        lat_max=lat1,
+        lon_step=lon_step,
+        lat_step=lat_step,
+        has_depth=depth is not None,
+        depth_min=d0,
+        depth_max=d1,
+        n_depth=n_depth,
+    )
+
+
+def flatten_catalogue(catalogue, skipped=None):
     """
     One row per (dataset, variable) for gridded datasets that have latitude,
     longitude and time axes. Returns a pandas DataFrame.
+
+    A dataset whose catalogue entry cannot be read (for example, a time unit
+    written in a way not seen before) is left out rather than stopping the
+    whole catalogue; its ID is added to the list `skipped`, if given.
     """
     rows = []
     for product in catalogue.products:
@@ -130,46 +200,14 @@ def flatten_catalogue(catalogue):
             service = _pick_service(part)
             if service is None:
                 continue
-            for var in service.variables:
-                coords = {c.coordinate_id: c for c in var.coordinates}
-                if not {"latitude", "longitude", "time"} <= set(coords):
-                    continue
-                t0, t1, t_step = _time_info(coords["time"])
-                lon0, lon1, lon_step, _ = _range_and_step(coords["longitude"])
-                lat0, lat1, lat_step, _ = _range_and_step(coords["latitude"])
-                depth = coords.get("depth") or coords.get("elevation")
-                d0 = d1 = n_depth = None
-                if depth is not None:
-                    d0, d1, _, n_depth = _range_and_step(depth)
-                rows.append(
-                    dict(
-                        product_id=product.product_id,
-                        product_title=product.title,
-                        product_doi=product.digital_object_identifier or "",
-                        processing_level=product.processing_level,
-                        production_center=product.production_center,
-                        dataset_id=dataset.dataset_id,
-                        dataset_name=dataset.dataset_name,
-                        version=version.label,
-                        part=part.name,
-                        variable=var.short_name,
-                        standard_name=var.standard_name or "",
-                        units=var.units or "",
-                        time_start=_ms_to_iso(t0),
-                        time_end=_ms_to_iso(t1),
-                        time_step_hours=t_step,
-                        lon_min=lon0,
-                        lon_max=lon1,
-                        lat_min=lat0,
-                        lat_max=lat1,
-                        lon_step=lon_step,
-                        lat_step=lat_step,
-                        has_depth=depth is not None,
-                        depth_min=d0,
-                        depth_max=d1,
-                        n_depth=n_depth,
-                    )
-                )
+            try:
+                found = [_variable_row(product, dataset, version, part, var)
+                         for var in service.variables]
+            except Exception:
+                if skipped is not None:
+                    skipped.append(dataset.dataset_id)
+                continue
+            rows.extend(r for r in found if r is not None)
     return pd.DataFrame(rows)
 
 
@@ -195,12 +233,28 @@ def to_columns(df):
     return out
 
 
-def catalogue_table(disable_progress_bar=False):
-    """Fetch the full Copernicus Marine catalogue, flattened to columns."""
-    import copernicusmarine
+def catalogue_table(disable_progress_bar=True, describe=None):
+    """
+    Fetch the full Copernicus Marine catalogue, flattened to columns. Returns
+    {"columns": <dict of lists>, "skipped": <IDs of datasets left out>}.
+    `describe` replaces copernicusmarine.describe (used in tests).
+    """
+    if describe is None:
+        import copernicusmarine
 
-    catalogue = copernicusmarine.describe(disable_progress_bar=disable_progress_bar)
-    return to_columns(flatten_catalogue(catalogue))
+        describe = copernicusmarine.describe
+    catalogue = describe(disable_progress_bar=disable_progress_bar)
+    skipped = []
+    columns = to_columns(flatten_catalogue(catalogue, skipped))
+    return {"columns": columns, "skipped": sorted(set(skipped))}
+
+
+def read_json(path):
+    """Read a JSON file written by copernicopia_catalogue.py."""
+    import json
+
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
 
 
 # ---------------------------------------------------------------------------
