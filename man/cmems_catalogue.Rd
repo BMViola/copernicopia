@@ -21,6 +21,7 @@ axis.
 \description{
 Fetches the full Copernicus Marine catalogue and returns one row per
 dataset and variable, for gridded datasets with latitude, longitude and
-time axes. Fetching takes a minute or two, so the table is cached on disk
-and reused until it is \code{max_age_days} old.
+time axes. Fetching takes a few minutes, so the table is cached on disk
+and reused until it is \code{max_age_days} old. While it is fetched, a timer
+shows it is still working; press Esc to stop.
 }
