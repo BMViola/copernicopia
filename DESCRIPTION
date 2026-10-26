@@ -1,7 +1,7 @@
 Package: copernicopia
 Type: Package
 Title: Download Copernicus Marine Data and Append It to Your Own Data
-Version: 0.3.0
+Version: 0.4.0
 Authors@R:
     person("Benjamin", "Viola", email = "benjamin.viola@utas.edu.au",
            role = c("aut", "cre"))

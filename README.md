@@ -10,7 +10,7 @@ Copernicopia (Copernicus cornucopia) walks you through logging in, choosing vari
 
 If Copernicopia helps your work, please cite it:
 
-> Viola, B. (2026). *Copernicopia: Download Copernicus Marine Data and Append It to Your Own Data*. R package version 0.3.0. https://github.com/BMViola/copernicopia
+> Viola, B. (2026). *Copernicopia: Download Copernicus Marine Data and Append It to Your Own Data*. R package version 0.4.0. https://github.com/BMViola/copernicopia
 
 In BibTeX:
 
@@ -19,7 +19,7 @@ In BibTeX:
   title  = {Copernicopia: Download Copernicus Marine Data and Append It to Your Own Data},
   author = {Benjamin Viola},
   year   = {2026},
-  note   = {R package version 0.3.0},
+  note   = {R package version 0.4.0},
   url    = {https://github.com/BMViola/copernicopia},
 }
 ```
@@ -212,6 +212,7 @@ Times can be `Date`, `POSIXct` or text like `"2025-07-15 13:00"`. `Date` and tex
 
   Partial months or years at the ends of the period are named by their exact dates, e.g. `..._20250710-20250731.nc`. Products are never split more finely than their own time step: monthly data asked for by day are split by month, and yearly data by year.
 - Products coarser than daily are downloaded for whole months (or years), so every date in your period has its value.
+- Products finer than daily (e.g. hourly) get one extra time step at each end of the period, so every point is matched to its nearest time step.
 - The region is widened by one grid cell on each side, so observations right at its edge still get values.
 - While downloading, each file gets a line as it starts and finishes, with the overall progress and an estimate of the time left:
 
