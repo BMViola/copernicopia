@@ -1,0 +1,14 @@
+bibentry(
+  bibtype = "Manual",
+  key = "Copernicopia",
+  title = "Copernicopia: Download Copernicus Marine Data and Append It to Your Own Data",
+  author = person("Benjamin", "Viola"),
+  year = "2026",
+  note = sprintf("R package version %s", meta$Version),
+  url = "https://github.com/BMViola/copernicopia",
+  textVersion = paste0(
+    "Viola, B. (2026). Copernicopia: Download Copernicus Marine Data and Append It ",
+    "to Your Own Data. R package version ", meta$Version, ". ",
+    "https://github.com/BMViola/copernicopia"
+  )
+)
