@@ -1,5 +1,7 @@
 # Copernicopia
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23901767.svg)](https://doi.org/10.5281/zenodo.23901767)
+
 Download [Copernicus Marine](https://marine.copernicus.eu/) data from R and append it to your own data, one guided step at a time.
 
 Copernicopia (Copernicus cornucopia) walks you through logging in, choosing variables from the full Copernicus Marine catalogue, picking a product for each, setting a region and time period, downloading the NetCDF files and adding the values to a data frame of locations and times. I built this (clarified/debugged/tested it with Claude, before testing it with some of the REC Laboratory members (Monash University)) so that marine ecologists and biological oceanographers had an easier time dealing with satellite data. Many of us spend hours headbutting walls in this space... And I had already written a py script ([BMViola/Copernicus-Bulk-Files](https://github.com/BMViola/Copernicus-Bulk-Files))... So I figured we could work it in to a package and make it work for any dataset with xyt values. In the background it uses the official [`copernicusmarine`](https://pypi.org/project/copernicusmarine/) Python toolbox through [reticulate](https://rstudio.github.io/reticulate/).
@@ -8,7 +10,7 @@ Copernicopia (Copernicus cornucopia) walks you through logging in, choosing vari
 
 If Copernicopia helps your work, please cite it:
 
-> Viola, B. (2026). *Copernicopia: Download Copernicus Marine Data and Append It to Your Own Data*. R package version 1.0.0. https://github.com/BMViola/copernicopia
+> Viola, B. (2026). *Copernicopia: Download Copernicus Marine Data and Append It to Your Own Data*. R package version 1.0.1. Zenodo. https://doi.org/10.5281/zenodo.23901767
 
 In BibTeX:
 
@@ -17,12 +19,13 @@ In BibTeX:
   title  = {Copernicopia: Download Copernicus Marine Data and Append It to Your Own Data},
   author = {Benjamin Viola},
   year   = {2026},
-  note   = {R package version 1.0.0},
+  note   = {R package version 1.0.1},
+  doi    = {10.5281/zenodo.23901767},
   url    = {https://github.com/BMViola/copernicopia},
 }
 ```
 
-You can also get this citation in R with `citation("copernicopia")`.
+This DOI always points to the latest version. Each version also has its own DOI, listed on the [Zenodo record](https://doi.org/10.5281/zenodo.23901767), if you need to cite a specific one. You can also get this citation in R with `citation("copernicopia")`.
 
 Please also cite the Copernicus Marine products you used; see [Citing the data](#citing-the-data).
 
