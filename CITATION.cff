@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use Copernicopia, please cite it as below."
+type: software
+title: "Copernicopia: Download Copernicus Marine Data and Append It to Your Own Data"
+version: 1.0.0
+date-released: 2026-11-03
+authors:
+  - family-names: Viola
+    given-names: Benjamin
+    orcid: "https://orcid.org/0000-0003-2620-2914"
+    affiliation: "Institute for Marine and Antarctic Studies, University of Tasmania, Hobart, Australia; School of Biological Sciences, Monash University, Clayton, Australia"
+    email: benjamin.viola@utas.edu.au
+license: MIT
+repository-code: "https://github.com/BMViola/copernicopia"
+url: "https://github.com/BMViola/copernicopia"
+abstract: >-
+  An R package that guides users through downloading gridded data from the
+  Copernicus Marine Service, using the official copernicusmarine Python toolbox,
+  and appending the values to their own data by location, time and depth. It
+  offers a step-by-step wizard or scripted requests, downloads that can be
+  cancelled and resumed, regions that cross 180 degrees, and a record of the
+  sources needed to cite the data. Its values have been validated against an
+  independent extraction.
+keywords:
+  - R
+  - Copernicus Marine Service
+  - oceanography
+  - marine ecology
+  - satellite data
+  - environmental data
