@@ -295,5 +295,9 @@ Data are provided by the Copernicus Marine Service. Run `cmems_getreadme()` for 
 
 ## Author
 
-Benjamin Viola, Institute for Marine and Antarctic Studies, University of Tasmania, and Monash University, Australia
-benjamin.viola@utas.edu.au
+Benjamin Viola ([ORCID 0000-0003-2620-2914](https://orcid.org/0000-0003-2620-2914))
+
+- Institute for Marine and Antarctic Studies, University of Tasmania, Hobart, Australia
+- School of Biological Sciences, Monash University, Clayton, Australia
+
+benjamin.viola@utas.edu.au · benjamin.viola@monash.edu
