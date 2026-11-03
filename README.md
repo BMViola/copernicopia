@@ -45,6 +45,7 @@ Copernicopia needs Python with `copernicusmarine` version 2 or later.
 - **reticulate 1.41 or later:** there's nothing you need to do. The Python environment is set up automatically the first time it's needed.
 - **Older reticulate:** run `copernicopia::cmems_install_python()` once, then restart R.
 - **Existing conda environment** (for example one made with `conda create -n cmems -c conda-forge copernicusmarine`): run `reticulate::use_condaenv("cmems")` at the start of your R session, before any Copernicopia function.
+- **NOTE: Existing conda environment** if the above point is confusing, see the opening steps to ([BMViola/Copernicus-Bulk-Files](https://github.com/BMViola/Copernicus-Bulk-Files))
 
 ## Quick start
 
