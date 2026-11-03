@@ -344,3 +344,11 @@ test_that("temporary names are short, and Windows path limits are warned about",
   expect_silent(warn(long, windows = FALSE, long_ok = FALSE))
   expect_silent(warn(character(0), windows = TRUE, long_ok = FALSE))
 })
+
+test_that("Windows' long-paths setting is only looked up when a path is too long", {
+  looked <- FALSE
+  long_ok <- function() { looked <<- TRUE; FALSE }
+  dir <- withr::local_tempdir()
+  expect_silent(copernicopia:::.warn_long_paths(file.path(dir, "a.nc"), windows = TRUE, long_ok = long_ok()))
+  expect_false(looked)
+})
