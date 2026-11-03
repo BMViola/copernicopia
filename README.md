@@ -1,16 +1,14 @@
 # Copernicopia
 
-PLEASE NOTE THIS IS IN A TESTING PHASE
-
 Download [Copernicus Marine](https://marine.copernicus.eu/) data from R and append it to your own data, one guided step at a time.
 
-Copernicopia (Copernicus cornucopia) walks you through logging in, choosing variables from the full Copernicus Marine catalogue, picking a product for each, setting a region and time period, downloading the NetCDF files and adding the values to a data frame of locations and times. I built this (clarified/debugged/tested it with Claude, before testing it with some of the REC Laboratory (Monash University) members: Peter Allen, UPDATE AS OTHERS TEST IT) so that marine ecologists and biological oceanographers had an easier time dealing with satellite data. Many of us spend hours headbutting walls in this space... And I had already written a py script ([BMViola/Copernicus-Bulk-Files](https://github.com/BMViola/Copernicus-Bulk-Files))... So I figured we could work it in to a package and make it work for any dataset with xyt values. In the background it uses the official [`copernicusmarine`](https://pypi.org/project/copernicusmarine/) Python toolbox through [reticulate](https://rstudio.github.io/reticulate/).
+Copernicopia (Copernicus cornucopia) walks you through logging in, choosing variables from the full Copernicus Marine catalogue, picking a product for each, setting a region and time period, downloading the NetCDF files and adding the values to a data frame of locations and times. I built this (clarified/debugged/tested it with Claude, before testing it with some of the REC Laboratory members (Monash University)) so that marine ecologists and biological oceanographers had an easier time dealing with satellite data. Many of us spend hours headbutting walls in this space... And I had already written a py script ([BMViola/Copernicus-Bulk-Files](https://github.com/BMViola/Copernicus-Bulk-Files))... So I figured we could work it in to a package and make it work for any dataset with xyt values. In the background it uses the official [`copernicusmarine`](https://pypi.org/project/copernicusmarine/) Python toolbox through [reticulate](https://rstudio.github.io/reticulate/).
 
 ## Citing Copernicopia
 
 If Copernicopia helps your work, please cite it:
 
-> Viola, B. (2026). *Copernicopia: Download Copernicus Marine Data and Append It to Your Own Data*. R package version 0.4.1. https://github.com/BMViola/copernicopia
+> Viola, B. (2026). *Copernicopia: Download Copernicus Marine Data and Append It to Your Own Data*. R package version 1.0.0. https://github.com/BMViola/copernicopia
 
 In BibTeX:
 
@@ -19,7 +17,7 @@ In BibTeX:
   title  = {Copernicopia: Download Copernicus Marine Data and Append It to Your Own Data},
   author = {Benjamin Viola},
   year   = {2026},
-  note   = {R package version 0.4.1},
+  note   = {R package version 1.0.0},
   url    = {https://github.com/BMViola/copernicopia},
 }
 ```
@@ -198,6 +196,10 @@ Regions that cross 180° are downloaded as one continuous file, with longitudes 
 - If a variable name is already a column in your data, the new column gets the dataset ID as a suffix.
 
 Times can be `Date`, `POSIXct` or text like `"2025-07-15 13:00"`. `Date` and text values are read as UTC.
+
+## Validation
+
+Copernicopia's values have been checked against an independent extraction of the same Copernicus Marine data (downloaded with the Python toolbox and extracted with `terra`) for nine products, covering daily, hourly and monthly data, the surface of 3D products, four grid resolutions and regions that cross 180°. See the [validation report](validation/validation.md).
 
 ## Downloads
 
