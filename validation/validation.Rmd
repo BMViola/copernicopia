@@ -1,0 +1,313 @@
+---
+title: "Copernicopia validation"
+output: github_document
+params:
+  python: "cmems"
+  points_file: "XYT_points.rds"
+  old_dir: "Enviro layers/extract_cache"
+  out_dir: "Copernicopia_test"
+---
+
+```{r options, include = FALSE}
+knitr::opts_chunk$set(comment = "", message = FALSE, warning = FALSE)
+```
+
+This report checks the values Copernicopia appends to a data frame against an independent extraction of the same Copernicus Marine data. It covers nine products, which between them use every way Copernicopia matches data to locations and times: daily, hourly and monthly time steps, the surface level of 3D products, flag variables, four grid resolutions, and regions that cross 180°.
+
+It was made by knitting [`validation.Rmd`](validation.Rmd) on the author's computer, where the tracking data and the independent extraction are kept. The paths to them are set as parameters at the top of the file.
+
+```{r setup, include = FALSE}
+library(copernicopia)
+#Python with copernicusmarine: RETICULATE_PYTHON if it is set (e.g. in .Renviron), otherwise the
+#python parameter, either a conda environment's name or the path to its python executable.
+#R often can't find conda itself on Windows, so a named environment is first looked for where
+#Miniconda, Anaconda, Miniforge and conda usually keep them.
+use_env <- function(x) {
+  if (file.exists(x)) return(reticulate::use_python(x, required = TRUE))
+  homes <- unique(c(Sys.getenv("USERPROFILE"), Sys.getenv("HOME"), path.expand("~"), Sys.getenv("ProgramData")))
+  roots <- c("miniconda3", "anaconda3", "miniforge3", "mambaforge", ".conda")
+  exe <- if (.Platform$OS.type == "windows") "python.exe" else file.path("bin", "python")
+  found <- file.path(rep(homes[nzchar(homes)], each = length(roots)), roots, "envs", x, exe)
+  found <- found[file.exists(found)]
+  if (length(found)) reticulate::use_python(found[1], required = TRUE)
+  else reticulate::use_condaenv(x, required = TRUE)
+}
+if (!nzchar(Sys.getenv("RETICULATE_PYTHON")) && nzchar(params$python)) use_env(params$python)
+
+#Points: every tracking location in January 2026
+xyt <- readRDS(params$points_file)
+jan <- format(xyt$datetime, "%Y-%m", tz = "UTC") == "2026-01"
+pts <- data.frame(rid = xyt$rid[jan], lon = xyt$lon[jan], lat = xyt$lat[jan], date = xyt$datetime[jan])
+```
+
+```{r requests, include = FALSE}
+#The region of the independent download, and the region the wizard suggested for these points
+band <- list(lon = c(-180, 180), lat = c(-80, -15))
+area <- list(lon = c(76.5, -71.5), lat = c(-69.5, -33))
+
+#Same datasets, variables and depths (surface, 0-1 m, for 3D products) as the independent download.
+#prefix: the column prefix used in the independent extraction
+tests <- list(
+  sst_band = list(label = "SST (band, monthly file)", prefix = "sst", dataset = "METOFFICE-GLO-SST-L4-NRT-OBS-SST-V2",
+                  vars = c("analysed_sst", "analysis_error", "sea_ice_fraction"), region = band, chunk = "month"),
+  sst_area = list(label = "SST (data's area, daily files)", prefix = "sst", dataset = "METOFFICE-GLO-SST-L4-NRT-OBS-SST-V2",
+                  vars = c("analysed_sst", "analysis_error", "sea_ice_fraction"), region = area, chunk = "day"),
+  glorys   = list(label = "GLORYS12 physics", prefix = "glorys", dataset = "cmems_mod_glo_phy_my_0.083deg_P1D-m",
+                  vars = c("thetao", "so", "mlotst", "zos"), region = area, chunk = "month"),
+  chl      = list(label = "Chlorophyll-a (gap-free)", prefix = "chl", dataset = "cmems_obs-oc_glo_bgc-plankton_my_l4-gapfree-multi-4km_P1D",
+                  vars = c("CHL", "CHL_uncertainty"), region = area, chunk = "month"),
+  pft      = list(label = "Phytoplankton groups", prefix = "pft", dataset = "cmems_obs-oc_glo_bgc-plankton_my_l4-multi-4km_P1M",
+                  vars = c("CHL", "DIATO", "DINO", "GREEN", "HAPTO", "MICRO", "NANO", "PICO", "PROCHLO", "PROKAR"),
+                  region = area, chunk = "month"),
+  zoo      = list(label = "Zooplankton", prefix = "zoo", dataset = "cmems_mod_glo_bgc-plankton_anfc_0.25deg_P1D-m",
+                  vars = "zooc", region = area, chunk = "month"),
+  wind     = list(label = "Wind", prefix = "wind", dataset = "cmems_obs-wind_glo_phy_nrt_l4_0.125deg_PT1H",
+                  vars = c("eastward_wind", "northward_wind"), region = area, chunk = "month"),
+  ssh      = list(label = "Sea level and geostrophic currents", prefix = "ssh",
+                  dataset = "cmems_obs-sl_glo_phy-ssh_nrt_allsat-l4-duacs-0.125deg_P1D",
+                  vars = c("adt", "sla", "ugos", "vgos", "ugosa", "vgosa"), region = area, chunk = "month"),
+  sic      = list(label = "Sea ice concentration", prefix = "sic", dataset = "osisaf_obs-si_glo_phy-sic-south_nrt_amsr2_l4_P1D-m",
+                  vars = "ice_conc", region = area, chunk = "month"),
+  siedge   = list(label = "Sea ice edge", prefix = "siedge", dataset = "osisaf_obs-si_glo_phy-siedge_nrt_sh-P1D",
+                  vars = "ice_edge", region = area, chunk = "month"))
+
+reqs <- lapply(tests, function(p) suppressMessages(
+  cmems_request(datasets = setNames(list(p$vars), p$dataset),
+                lon = p$region$lon, lat = p$region$lat,
+                time = c("2026-01-01", "2026-01-31"),
+                chunk = p$chunk, out_dir = params$out_dir)))
+```
+
+```{r download, include = FALSE}
+#Files that are already downloaded are skipped, so run this chunk interactively first to see the downloads' progress
+downloads <- lapply(reqs, cmems_download)
+```
+
+```{r compare, include = FALSE}
+#Downloads that did not complete are reported, not compared
+ok <- function(d) d$result %in% c("ok", "exists")
+failed <- vapply(downloads, function(d) !all(ok(d)), logical(1))
+
+#One row per variable: values present in both, present in only one, and how far apart
+compare_var <- function(o, n) {
+  if (is.null(n)) n <- rep(NA_real_, length(o))
+  both <- !is.na(o) & !is.na(n)
+  d <- n[both] - o[both]
+  data.frame(values = sum(both),
+             only_independent = sum(!is.na(o) & is.na(n)),
+             only_copernicopia = sum(is.na(o) & !is.na(n)),
+             differ = sum(abs(d) > 1e-6),
+             max_abs_diff = if (any(both)) signif(max(abs(d)), 3) else NA_real_,
+             r = if (sum(both) > 2 && stats::sd(o[both]) > 0) round(stats::cor(o[both], n[both]), 6) else NA_real_)}
+
+merged <- list()
+results <- do.call(rbind, lapply(names(tests)[!failed], function(k) {
+  p <- tests[[k]]
+  old <- as.data.frame(readRDS(file.path(params$old_dir, paste0(p$prefix, ".rds"))))
+  old <- old[old$rid %in% pts$rid, c("rid", paste0(p$prefix, "_", p$vars)), drop = FALSE]
+  new <- suppressMessages(cmems_extract(pts, reqs[[k]]))
+  m <- merge(old, as.data.frame(new), by = "rid")
+  merged[[k]] <<- m
+  do.call(rbind, lapply(p$vars, function(v) cbind(test = p$label, variable = v,
+                                                   compare_var(m[[paste0(p$prefix, "_", v)]], m[[v]]))))}))
+```
+
+```{r edges, include = FALSE}
+#Grid facts from each downloaded file's own coordinates: distance to the nearest cell edge, and the longitude step
+reticulate::py_run_string("
+import numpy as np, xarray as xr
+def _grid(path):
+    with xr.open_dataset(path) as ds:
+        names = {n.lower(): n for n in list(ds.coords) + list(ds.dims)}
+        glon = np.sort(ds[names.get('longitude', names.get('lon'))].values.astype(float))
+        glat = np.sort(ds[names.get('latitude', names.get('lat'))].values.astype(float))
+    return glon, glat
+def _edge_distance(path, lon, lat):
+    glon, glat = _grid(path)
+    def dist(g, x, wrap):
+        edges = (g[1:] + g[:-1]) / 2
+        x = np.atleast_1d(np.asarray(x, dtype=float))
+        if wrap:
+            step = float(np.median(np.diff(g)))
+            base = g[0] - step / 2
+            x = base + np.mod(x - base, 360.0)
+        return np.min(np.abs(edges[None, :] - x[:, None]), axis=1).tolist()
+    return {'lon': dist(glon, lon, True), 'lat': dist(glat, lat, False)}
+def _lon_step(path):
+    return float(np.median(np.diff(_grid(path)[0])))
+")
+first_file <- function(k) downloads[[k]]$file[ok(downloads[[k]])][1]
+
+#Values that differ, one row each (times and values only, not locations)
+differences <- do.call(rbind, lapply(names(merged), function(k) {
+  p <- tests[[k]]
+  m <- merged[[k]]
+  rows <- do.call(rbind, lapply(p$vars, function(v) {
+    o <- m[[paste0(p$prefix, "_", v)]]
+    n <- m[[v]]
+    i <- which(!is.na(o) & !is.na(n) & abs(n - o) > 1e-6)
+    if (!length(i)) return(NULL)
+    data.frame(test = p$label, variable = v, time_utc = format(m$date[i], "%Y-%m-%d %H:%M", tz = "UTC"),
+               independent = signif(o[i], 6), copernicopia = signif(n[i], 6), difference = signif(n[i] - o[i], 3),
+               lon = m$lon[i], lat = m$lat[i])}))
+  if (is.null(rows)) return(NULL)
+  e <- reticulate::py$`_edge_distance`(first_file(k), as.list(rows$lon), as.list(rows$lat))
+  rows$deg_to_cell_edge <- signif(pmin(unlist(e$lon), unlist(e$lat)), 2)
+  rows[, setdiff(names(rows), c("lon", "lat"))]}))
+
+#Values present in only one extraction, one row per variable, with how close those points are to 180 degrees
+one_sided <- do.call(rbind, lapply(names(merged), function(k) {
+  p <- tests[[k]]
+  m <- merged[[k]]
+  half <- reticulate::py$`_lon_step`(first_file(k)) / 2
+  do.call(rbind, lapply(p$vars, function(v) {
+    o <- m[[paste0(p$prefix, "_", v)]]
+    n <- m[[v]]
+    if (is.null(n)) n <- rep(NA_real_, length(o))
+    i <- which(xor(is.na(o), is.na(n)))
+    if (!length(i)) return(NULL)
+    to180 <- 180 - abs(((m$lon[i] + 180) %% 360) - 180)
+    data.frame(test = p$label, variable = v, only_copernicopia = sum(is.na(o[i])), only_independent = sum(is.na(n[i])),
+               max_deg_to_180 = signif(max(to180), 2), half_cell_deg = signif(half, 2),
+               all_within_half_cell_of_180 = all(to180 < half))}))}))
+```
+
+## Summary
+
+```{r summary-numbers, include = FALSE}
+n_values <- sum(results$values)
+n_differ <- sum(results$differ)
+n_one <- sum(results$only_independent + results$only_copernicopia)
+near_edge <- if (is.null(differences)) 0 else sum(differences$deg_to_cell_edge < 1e-4)
+edge <- "less than 0.0001 degrees from the edge of a grid cell, where either neighbouring cell is equally close"
+differ_text <- if (n_differ == 0) {
+  "None differed."
+} else if (near_edge == n_differ) {
+  sprintf("The %s that differed %s at points %s.", if (n_differ == 1) "one" else n_differ,
+          if (n_differ == 1) "was" else "were all", edge)
+} else if (near_edge == 0) {
+  sprintf("%d differed (see below).", n_differ)
+} else {
+  sprintf("%d differed (see below), %d of them at points %s.", n_differ, near_edge, edge)
+}
+one_text <- if (n_one == 0) {
+  "Every value missing from one extraction was missing from the other (land, ice or no data)."
+} else if (sum(one_sided$only_independent) == 0 && all(one_sided$all_within_half_cell_of_180)) {
+  sprintf(paste("%s value%s present only in Copernicopia's extraction, all at points within half a grid cell of the",
+                "180 degree meridian: the independent extraction's grid stops just short of 180 degrees there, while",
+                "Copernicopia joins the grid's two edges."),
+          format(n_one, big.mark = ","), if (n_one == 1) " was" else "s were")
+} else {
+  sprintf("%s value%s present in only one extraction (see below).", format(n_one, big.mark = ","),
+          if (n_one == 1) " was" else "s were")
+}
+failed_text <- if (!any(failed)) "" else {
+  sprintf("The download for %s did not complete, so %s not compared.",
+          paste(vapply(tests[failed], `[[`, "", "label"), collapse = " and "),
+          if (sum(failed) == 1) "it was" else "they were")
+}
+```
+
+Across `r sum(!failed)` downloads and `r nrow(results)` variables, `r format(n_values, big.mark = ",")` values were present in both extractions. Of these, **`r format(n_values - n_differ, big.mark = ",")` (`r sprintf("%.4f", 100 * (n_values - n_differ) / n_values)`%) were identical**. `r differ_text` `r one_text` `r failed_text`
+
+## What was compared
+
+**Points.** `r format(nrow(pts), big.mark = ",")` hourly tracking locations from `r format(min(pts$date), "%d %B %Y", tz = "UTC")` to `r format(max(pts$date), "%d %B %Y", tz = "UTC")`, in the Southern Ocean from 76.8°E east across 180° to 71.8°W. Individual locations are not shown.
+
+**Independent extraction.** The data were downloaded with the `copernicusmarine` Python toolbox by [`download_cmems.py`](https://github.com/BMViola/Copernicus-Bulk-Files) (longitude -180 to 180, latitude -80 to -15, monthly files), and values were extracted in R with `terra`: each location takes the value of the grid cell containing it, from the time step on the same UTC day (daily data), the nearest hour (hourly data) or the same calendar month (monthly data). That code is shown [at the end](#independent-extraction-code).
+
+**Copernicopia.** The same datasets, variables and depths were downloaded with `cmems_download()` and appended with `cmems_extract()`, using the defaults. SST was run twice: once as the independent download was made (the full band, one monthly file), and once as the wizard suggested for these points (their area, crossing 180°, one file per day). Every other product used the points' area.
+
+```{r products, echo = FALSE}
+knitr::kable(data.frame(
+  Download = vapply(tests, `[[`, "", "label"),
+  Dataset = vapply(tests, `[[`, "", "dataset"),
+  Variables = vapply(tests, function(p) paste(p$vars, collapse = ", "), ""),
+  Region = vapply(tests, function(p) if (identical(p$region, band)) "band" else "data's area", ""),
+  Files = vapply(downloads, nrow, 1L),
+  MB = vapply(downloads, function(d) round(sum(d$size_mb, na.rm = TRUE)), 1),
+  Downloaded = vapply(downloads, function(d) if (all(ok(d))) "yes" else sprintf("failed (%d of %d files)", sum(!ok(d)), nrow(d)), ""),
+  row.names = NULL))
+```
+
+## Results
+
+One row per variable. *values*: present in both extractions; *only_independent*, *only_copernicopia*: present in that extraction but not the other; *differ*: values more than 0.000001 apart; *max_abs_diff*: largest difference, in the variable's units; *r*: correlation between the two.
+
+```{r results, echo = FALSE}
+knitr::kable(results, row.names = FALSE)
+```
+
+### Values that differ
+
+```{r differences, echo = FALSE, results = "asis"}
+if (is.null(differences)) {
+  cat("No values differ.\n")
+} else {
+  cat("*difference*: Copernicopia minus independent, in the variable's units; *deg_to_cell_edge*: how far the point is from the nearest edge of a grid cell, in degrees.\n\n")
+  print(knitr::kable(differences, row.names = FALSE))
+}
+```
+
+### Values present in only one extraction
+
+```{r one-sided, echo = FALSE, results = "asis"}
+if (is.null(one_sided)) {
+  cat("None: every value missing from one extraction was missing from the other.\n")
+} else {
+  cat("*max_deg_to_180*: the furthest of these points from the 180 degree meridian; *half_cell_deg*: half the grid's longitude step. A point closer to 180 than half a cell is in the grid's first or last column.\n\n")
+  print(knitr::kable(one_sided, row.names = FALSE))
+}
+```
+
+## Code
+
+The code that made this report:
+
+```{r ref.label = c("setup", "requests", "download", "compare"), eval = FALSE}
+```
+
+### Independent extraction code
+
+For reference, the code used for the independent extraction (not run here; its results were saved and are read in above):
+
+```{r independent, eval = FALSE}
+#Time keys: daily means on the UTC date, hourly fields on the hour, monthly composites on the month
+tkey <- function(t, step) switch(step,
+                                 hour = as.character(round(as.numeric(t)/3600)),
+                                 day = format(t, "%Y-%m-%d", tz = "UTC"),
+                                 month = format(t, "%Y-%m", tz = "UTC"))
+
+#Extract one product at each location's cell and matching time step
+extract_product <- function(pts, spec, prefix, lag_days = 0) {
+  out <- data.table(rid = pts$rid)
+  cols <- paste0(prefix, "_", spec$vars)
+  for (cl in cols) set(out, j = cl, value = NA_real_)
+  pkey  <- tkey(pts$t - lag_days * 86400, spec$step)
+  files <- list.files(env_dir, pattern = spec$pattern, full.names = TRUE)
+  for (f in files) {
+    r1 <- rast(f, subds = spec$vars[1])
+    lt <- layer_times(r1, f)
+    stopifnot(length(lt) == nlyr(r1)) #one layer per time step
+    lyr <- match(pkey, tkey(lt, spec$step))
+    has <- which(!is.na(lyr))
+    if (!length(has)) next
+    cells <- cellFromXY(r1, cbind(pts$lon180[has], pts$lat[has]))
+    use <- has[!is.na(cells)]; cells <- cells[!is.na(cells)] #outside the grid's extent stays NA
+    if (!length(use)) next
+    ucells <- unique(cells); ri <- match(cells, ucells)
+    for (k in seq_along(spec$vars)) {
+      r <- if (k == 1) r1 else rast(f, subds = spec$vars[k])
+      vv <- as.matrix(r[ucells]) #values at each needed cell, all layers in the file
+      set(out, i = use, j = cols[k], value = vv[cbind(ri, lyr[use])])}
+  }
+  out
+}
+```
+
+## Software
+
+```{r software, echo = FALSE}
+cat(sprintf("Run on %s\nCopernicopia %s\ncopernicusmarine %s\n%s\n", format(Sys.Date(), "%d %B %Y"),
+            packageVersion("copernicopia"), reticulate::import("copernicusmarine")$`__version__`, R.version.string))
+```
