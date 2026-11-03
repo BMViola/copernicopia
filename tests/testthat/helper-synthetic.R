@@ -96,7 +96,8 @@ Sys.setenv(R_USER_CACHE_DIR = file.path(tempdir(), "user-cache"))
 # A stand-in for copernicusmarine.subset(), run by the real worker process.
 # Behaviour is set with environment variables (the worker inherits them):
 #   FAKE_DELAY    seconds per write step (3 steps per file)
-#   FAKE_FAIL_ON  raise an error for files whose name contains this text
+#   FAKE_FAIL_ON  raise an error for files whose key contains this text
+#                 (key: dataset ID and start date, e.g. synth_phy_P1D-m_20250802)
 #   FAKE_STOP_ON  for this file, create a stop file in every control folder
 #                 (as cmems_abort() would) and then wait
 #   FAKE_HANG_ON  for this file, block forever without releasing Python's lock
@@ -112,18 +113,19 @@ use_fake_worker_toolbox <- function(env = parent.frame()) {
     "def subset(**kw):",
     "    name = kw['output_filename']",
     "    final = os.path.join(kw['output_directory'], name)",
+    "    key = kw['dataset_id'] + '_' + kw['start_datetime'][:10].replace('-', '')",
     "    rec = os.environ.get('FAKE_RECORD')",
     "    if rec:",
-    "        with open(os.path.join(rec, name.split('_', 2)[2] + '.json'), 'w') as f:",
+    "        with open(os.path.join(rec, key + '.json'), 'w') as f:",
     "            json.dump(kw, f)",
-    "    if _match('FAKE_FAIL_ON', name):",
+    "    if _match('FAKE_FAIL_ON', key):",
     "        raise ValueError('server unavailable')",
-    "    if _match('FAKE_STOP_ON', name):",
+    "    if _match('FAKE_STOP_ON', key):",
     "        root = os.path.join(os.environ['R_USER_CACHE_DIR'], 'R', 'copernicopia', 'running')",
     "        for d in glob.glob(os.path.join(root, '*')):",
     "            open(os.path.join(d, 'stop'), 'w').close()",
     "        time.sleep(30)",
-    "    if _match('FAKE_HANG_ON', name):",
+    "    if _match('FAKE_HANG_ON', key):",
     "        import re",
     "        open(final + '.part', 'w').close()",
     "        re.match(r'(a+)+$', 'a' * 60 + 'b')  # runs for ages without releasing Python's lock",
