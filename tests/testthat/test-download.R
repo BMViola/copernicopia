@@ -52,7 +52,7 @@ test_that("files are downloaded by day, failures logged, and reruns resume", {
   expect_equal(nrow(log), 3)
 
   # What the worker asked of the toolbox: exact days, padded region, depth
-  a <- read_json(file.path(rec, "synth_phy_P1D-m_20250731.nc.json"))
+  a <- read_json(file.path(rec, "synth_phy_P1D-m_20250731.json"))
   expect_equal(a$start_datetime, "2025-07-31T00:00:00")
   expect_equal(a$end_datetime, "2025-07-31T23:59:59")
   expect_equal(a$coordinates_selection_method, "inside")
@@ -83,7 +83,7 @@ test_that("monthly data asked for by day are split by month, with a note", {
   msgs <- capture_messages(res <- cmems_download(req))
   expect_match(msgs[1], "monthly data, so it is saved as one file per month")
   expect_equal(basename(res$file), c("synth_chl_P1M_202507.nc", "synth_chl_P1M_202508.nc"))
-  a <- read_json(file.path(rec, "synth_chl_P1M_202507.nc.json"))
+  a <- read_json(file.path(rec, "synth_chl_P1M_20250701.json"))
   expect_null(a$minimum_depth)
   expect_equal(a$start_datetime, "2025-07-01T00:00:00")
 })
@@ -281,7 +281,8 @@ test_that("cmems_abort() force-stops a stuck worker when R is not responding", {
     control_dir = control,
     subset_function = "fake_toolbox:subset",
     python_path = list(file.path(tempdir(), "fake-toolbox")),
-    tasks = list(list(output_directory = out_dir, output_filename = "tmp_x_ds_20250701.nc"))
+    tasks = list(list(dataset_id = "ds", start_datetime = "2025-07-01T00:00:00",
+                      output_directory = out_dir, output_filename = "tmp_x.nc"))
   )
   withr::local_envvar(FAKE_HANG_ON = "20250701")
   worker <- copernicopia:::.start_worker(control, job)
@@ -326,4 +327,20 @@ test_that("data finer than daily get one extra time step at each end of the peri
   e_d <- req_d$datasets[[1]]
   ch_d <- copernicopia:::.time_chunks(req_d$time, e_d$time_step_hours, req_d$chunk)
   expect_equal(copernicopia:::.chunk_times(req_d, e_d, ch_d[1, ]), c("2025-07-10T00:00:00", "2025-07-31T23:59:59"))
+})
+
+test_that("temporary names are short, and Windows path limits are warned about", {
+  a <- copernicopia:::.tmp_name()
+  expect_match(a, "^tmp_[0-9a-f]+\\.nc$")
+  expect_false(identical(a, copernicopia:::.tmp_name()))
+  expect_lt(nchar(a), 25)
+  dir <- withr::local_tempdir()
+  long <- file.path(dir, paste0(strrep("x", 300), ".nc"))
+  short <- file.path(dir, "a.nc")
+  warn <- copernicopia:::.warn_long_paths
+  expect_warning(warn(long, windows = TRUE, long_ok = FALSE), "more than Windows allows")
+  expect_silent(warn(short, windows = TRUE, long_ok = FALSE))
+  expect_silent(warn(long, windows = TRUE, long_ok = TRUE))
+  expect_silent(warn(long, windows = FALSE, long_ok = FALSE))
+  expect_silent(warn(character(0), windows = TRUE, long_ok = FALSE))
 })
