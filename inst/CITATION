@@ -6,9 +6,10 @@ bibentry(
   year = "2026",
   note = sprintf("R package version %s", meta$Version),
   url = "https://github.com/BMViola/copernicopia",
+  doi = "10.5281/zenodo.23901767",
   textVersion = paste0(
     "Viola, B. (2026). Copernicopia: Download Copernicus Marine Data and Append It ",
-    "to Your Own Data. R package version ", meta$Version, ". ",
-    "https://github.com/BMViola/copernicopia"
+    "to Your Own Data. R package version ", meta$Version, ". Zenodo. ",
+    "https://doi.org/10.5281/zenodo.23901767"
   )
 )
