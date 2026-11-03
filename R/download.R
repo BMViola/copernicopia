@@ -48,6 +48,7 @@ cmems_download <- function(request, dry_run = FALSE, overwrite = FALSE) {
 
   items <- .download_plan(request, overwrite)
   todo <- which(vapply(items, `[[`, logical(1), "todo"))
+  .warn_long_paths(vapply(items[todo], `[[`, "", "final"))
   n <- length(todo)
   skipped <- length(items) - n
   if (n == 0) {
@@ -112,7 +113,7 @@ cmems_download <- function(request, dry_run = FALSE, overwrite = FALSE) {
 # result and download time of each item.
 .run_worker <- function(request, items, log_path) {
   n <- length(items)
-  tmps <- vapply(items, function(it) .tmp_name(it$fname), "")
+  tmps <- vapply(items, function(it) .tmp_name(), "")
   result <- rep("cancelled", n)
   seconds <- rep(NA_real_, n)
   control <- .new_control_dir()
@@ -357,9 +358,37 @@ cmems_download <- function(request, dry_run = FALSE, overwrite = FALSE) {
 .spinner <- function(i) c("|", "/", "-", "\\")[i %% 4 + 1]
 
 # A temporary file name unique to this attempt, so leftovers from a stopped
-# download never collide with a new one.
-.tmp_name <- function(fname) {
-  paste0("tmp_", sub("^file", "", basename(tempfile())), "_", fname)
+# download never collide with a new one. It is kept short (it does not repeat
+# the dataset ID) because Windows limits the length of file paths.
+.tmp_name <- function() {
+  paste0("tmp_", sub("^file", "", basename(tempfile())), ".nc")
+}
+
+# Windows refuses file paths longer than 260 characters unless long paths are
+# turned on, and the toolbox then fails with "No such file or directory". This
+# warns before downloading if any file's full path would be too long.
+.warn_long_paths <- function(paths, windows = .Platform$OS.type == "windows",
+                             long_ok = .long_paths_enabled()) {
+  if (!windows || long_ok || length(paths) == 0) return(invisible(FALSE))
+  full <- file.path(normalizePath(dirname(paths), winslash = "/", mustWork = FALSE), basename(paths))
+  n <- max(nchar(full))
+  if (n < 260) return(invisible(FALSE))
+  warning(sprintf(paste0(
+    "Some files' full paths would be %d characters long, more than Windows allows (260) unless ",
+    "long paths are turned on, so they would fail to download. Use a shorter out_dir, e.g. ",
+    "\"C:/cmems_data\", or turn on long paths in Windows (search the web for \"enable long paths Windows\")."),
+    n), call. = FALSE)
+  invisible(TRUE)
+}
+
+.long_paths_enabled <- function() {
+  if (.Platform$OS.type != "windows") return(TRUE)
+  v <- tryCatch(
+    get("readRegistry", envir = asNamespace("utils"))(  # utils::readRegistry exists on Windows only
+      "SYSTEM\\CurrentControlSet\\Control\\FileSystem", hive = "HLM")$LongPathsEnabled,
+    error = function(e) NULL
+  )
+  isTRUE(as.integer(v) == 1L)
 }
 
 .fmt_secs <- function(s) {
