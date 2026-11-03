@@ -369,10 +369,11 @@ cmems_download <- function(request, dry_run = FALSE, overwrite = FALSE) {
 # warns before downloading if any file's full path would be too long.
 .warn_long_paths <- function(paths, windows = .Platform$OS.type == "windows",
                              long_ok = .long_paths_enabled()) {
-  if (!windows || long_ok || length(paths) == 0) return(invisible(FALSE))
+  if (!windows || length(paths) == 0) return(invisible(FALSE))
   full <- file.path(normalizePath(dirname(paths), winslash = "/", mustWork = FALSE), basename(paths))
   n <- max(nchar(full))
-  if (n < 260) return(invisible(FALSE))
+  # Windows' long-paths setting is only looked up when a path is too long
+  if (n < 260 || long_ok) return(invisible(FALSE))
   warning(sprintf(paste0(
     "Some files' full paths would be %d characters long, more than Windows allows (260) unless ",
     "long paths are turned on, so they would fail to download. Use a shorter out_dir, e.g. ",
@@ -383,9 +384,11 @@ cmems_download <- function(request, dry_run = FALSE, overwrite = FALSE) {
 
 .long_paths_enabled <- function() {
   if (.Platform$OS.type != "windows") return(TRUE)
+  # utils::readRegistry exists on Windows only. It warns about value types it
+  # cannot read ("unhandled key type"), which this key has besides the one needed.
   v <- tryCatch(
-    get("readRegistry", envir = asNamespace("utils"))(  # utils::readRegistry exists on Windows only
-      "SYSTEM\\CurrentControlSet\\Control\\FileSystem", hive = "HLM")$LongPathsEnabled,
+    suppressWarnings(get("readRegistry", envir = asNamespace("utils"))(
+      "SYSTEM\\CurrentControlSet\\Control\\FileSystem", hive = "HLM"))$LongPathsEnabled,
     error = function(e) NULL
   )
   isTRUE(as.integer(v) == 1L)
