@@ -34,8 +34,11 @@ fake_catalogue <- function() {
   )
 }
 
+# The package picks its Python first (the environment made by
+# cmems_install_python(), if there is one): asking reticulate about a module
+# before that would start whichever Python reticulate finds by itself.
 python_ready <- function() {
-  reticulate::py_module_available("copernicusmarine") &&
+  isTRUE(tryCatch(copernicopia:::.ensure_python(), error = function(e) FALSE)) &&
     reticulate::py_module_available("h5netcdf")
 }
 
@@ -93,11 +96,17 @@ script_input <- function(answers) {
 # Keep the tests' control folders and caches out of the user's real cache
 Sys.setenv(R_USER_CACHE_DIR = file.path(tempdir(), "user-cache"))
 
+# Downloads in the tests use stand-ins for the toolbox, so there is no
+# Copernicus Marine login to check (the check has its own tests)
+options(copernicopia.check_login = FALSE)
+
 # A stand-in for copernicusmarine.subset(), run by the real worker process.
 # Behaviour is set with environment variables (the worker inherits them):
 #   FAKE_DELAY    seconds per write step (3 steps per file)
 #   FAKE_FAIL_ON  raise an error for files whose key contains this text
 #                 (key: dataset ID and start date, e.g. synth_phy_P1D-m_20250802)
+#   FAKE_SILENT_ON  for this file, return without writing anything or raising
+#                 an error (as the toolbox does when it cannot ask for a username)
 #   FAKE_STOP_ON  for this file, create a stop file in every control folder
 #                 (as cmems_abort() would) and then wait
 #   FAKE_HANG_ON  for this file, block forever without releasing Python's lock
@@ -120,6 +129,9 @@ use_fake_worker_toolbox <- function(env = parent.frame()) {
     "            json.dump(kw, f)",
     "    if _match('FAKE_FAIL_ON', key):",
     "        raise ValueError('server unavailable')",
+    "    if _match('FAKE_SILENT_ON', key):",
+    "        print('Abort')",
+    "        return None",
     "    if _match('FAKE_STOP_ON', key):",
     "        root = os.path.join(os.environ['R_USER_CACHE_DIR'], 'R', 'copernicopia', 'running')",
     "        for d in glob.glob(os.path.join(root, '*')):",
@@ -139,7 +151,7 @@ use_fake_worker_toolbox <- function(env = parent.frame()) {
   ), file.path(dir, "fake_toolbox.py"))
   withr::local_options(copernicopia.subset_function = "fake_toolbox:subset",
                        copernicopia.python_path = dir, .local_envir = env)
-  withr::local_envvar(FAKE_DELAY = NA, FAKE_FAIL_ON = NA, FAKE_STOP_ON = NA,
+  withr::local_envvar(FAKE_DELAY = NA, FAKE_FAIL_ON = NA, FAKE_SILENT_ON = NA, FAKE_STOP_ON = NA,
                       FAKE_HANG_ON = NA, FAKE_RECORD = NA, .local_envir = env)
   invisible(dir)
 }

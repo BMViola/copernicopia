@@ -16,10 +16,13 @@
 #'   while `c(-170, 170)` is everything except that strip.
 #' @param lat The southern and northern edges of the region, `c(south, north)`,
 #'   in degrees.
-#' @param time Start and end dates, `c("YYYY-MM-DD", "YYYY-MM-DD")`.
-#' @param depth Depth range in metres, `c(min, max)`, used for datasets with a
-#'   depth axis. Either one range for all of them, or a named list with one
-#'   range per dataset ID.
+#' @param time Start and end dates, `c("YYYY-MM-DD", "YYYY-MM-DD")`, as text
+#'   written year-month-day or as `Date` values. Other layouts, such as
+#'   day/month/year, are an error rather than a guess.
+#' @param depth Depth range in metres, `c(min, max)` with `min <= max`, used
+#'   for datasets with a depth axis. Either one range for all of them, or a
+#'   named list with one range per dataset ID (datasets left out of the list
+#'   get the surface layer, `c(0, 1)`).
 #' @param chunk How to split the download into files: `"month"` (the
 #'   default) for one file per calendar month, `"day"` for one file per day,
 #'   `"year"` for one file per calendar year, or `"all"` for a single file
@@ -52,7 +55,7 @@ cmems_request <- function(datasets, lon, lat, time, depth = c(0, 1),
   if (length(lat) != 2 || anyNA(lat) || lat[1] >= lat[2] || any(abs(lat) > 90)) {
     stop("`lat` must be c(min, max) with min < max, between -90 and 90.", call. = FALSE)
   }
-  time <- as.Date(time)
+  time <- .as_dates(time, "`time`")
   if (length(time) != 2 || anyNA(time) || time[1] > time[2]) {
     stop("`time` must be c(start, end) dates with start <= end.", call. = FALSE)
   }
@@ -71,6 +74,7 @@ cmems_request <- function(datasets, lon, lat, time, depth = c(0, 1),
     has_depth <- nrow(meta) > 0 && any(meta$has_depth)
     d <- if (is.list(depth)) depth[[id]] else depth
     if (has_depth && is.null(d)) d <- c(0, 1)
+    if (has_depth) d <- .check_depth(d, id)
     units <- meta$units[match(vars, meta$variable)]
     standard_names <- meta$standard_name[match(vars, meta$variable)]
     first <- function(col) {
@@ -108,6 +112,16 @@ cmems_request <- function(datasets, lon, lat, time, depth = c(0, 1),
          chunk = chunk, out_dir = out_dir),
     class = "cmems_request"
   )
+}
+
+# A depth range for one dataset: two numbers, the shallower first.
+.check_depth <- function(d, id) {
+  ok <- is.numeric(d) && length(d) == 2 && !anyNA(d) && all(is.finite(d)) && d[1] <= d[2]
+  if (!ok) {
+    stop("`depth` for '", id, "' must be c(min, max) in metres, two numbers with min <= max.",
+         call. = FALSE)
+  }
+  as.numeric(d)
 }
 
 stats_setnames <- function(x, nm) {

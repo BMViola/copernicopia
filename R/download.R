@@ -3,7 +3,9 @@
 #' Downloads NetCDF files for every dataset in a [cmems_request()], split into
 #' files as set by its `chunk` (one per month by default). Products coarser
 #' than daily are downloaded for whole months or years, so every date in the
-#' period has its time step. Files that already exist are skipped, so an
+#' period has its time step. Daily and finer products get one extra time step
+#' at each end of the period, so every point has its nearest time step to hand
+#' (see `time_match` in [cmems_extract()]). Files that already exist are skipped, so an
 #' interrupted download can simply be restarted. Each file is written under a
 #' temporary name and renamed only once complete, so a half-finished file is
 #' never mistaken for a finished one. Every attempt is logged to
@@ -18,6 +20,13 @@
 #' interactive sessions, the line for the file in progress also shows a
 #' running timer and the amount downloaded so far, updated twice a second
 #' (turn this off with `options(copernicopia.live_progress = FALSE)`).
+#'
+#' **Logging in.** Downloading needs a Copernicus Marine account. Before
+#' anything is downloaded or checked, your saved credentials are checked once
+#' per session: if there are none, you are asked to log in (in an interactive
+#' session) or the download stops with a message saying so (in a script); run
+#' [cmems_login()] first. Set `options(copernicopia.check_login = FALSE)` to
+#' skip this check.
 #'
 #' **Cancelling.** The downloads run in a separate Python process. Press Esc
 #' to stop both R and that process at once. If R is not responding, run
@@ -40,6 +49,7 @@ cmems_download <- function(request, dry_run = FALSE, overwrite = FALSE) {
   out_dir <- path.expand(request$out_dir)
   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
   if (dry_run) {
+    .require_login()
     cm <- .cm()
     toolbox_log <- .collect_toolbox_warnings()
     on.exit(toolbox_log$restore(), add = TRUE)
@@ -54,6 +64,7 @@ cmems_download <- function(request, dry_run = FALSE, overwrite = FALSE) {
   if (n == 0) {
     message(sprintf("All %d file(s) are already downloaded.", length(items)))
   } else {
+    .require_login()
     message(sprintf("Downloading %d file(s) for %d product(s)%s.%s", n, length(request$datasets),
                     if (skipped > 0) sprintf(" (%d already downloaded, skipped)", skipped) else "",
                     if (.live_progress()) " Press Esc to cancel." else ""))
@@ -180,7 +191,10 @@ cmems_download <- function(request, dry_run = FALSE, overwrite = FALSE) {
         if (file.exists(it$final)) unlink(it$final)
         if (!file.rename(tmp, it$final)) res <- "FAILED: could not rename the temporary file"
       } else {
-        res <- "FAILED: the toolbox did not write a file"
+        # The toolbox returns without an error when it cannot ask for a
+        # username, so this is what a missing login looks like
+        res <- paste("FAILED: the toolbox did not write a file. If you are not logged in,",
+                     "run cmems_login() and try again")
       }
     } else {
       remove_partial(k)
@@ -518,15 +532,16 @@ cmems_download <- function(request, dry_run = FALSE, overwrite = FALSE) {
   }
 }
 
-# The first and last moments to download for one file. For data finer than
-# daily, the whole period is widened by one time step at each end, inside its
+# The first and last moments to download for one file. For daily and finer
+# data, the whole period is widened by one time step at each end, inside its
 # first and last files only, so every point in the period has its nearest time
-# step (e.g. 00:00 the next day for a point at 23:45 on the last day).
+# step (e.g. 00:00 the next day for a point at 23:45 on the last day). Coarser
+# data are downloaded for whole months or years instead (.download_period()).
 .chunk_times <- function(request, e, chunk) {
   start <- as.POSIXct(paste(format(chunk$start), "00:00:00"), tz = "UTC")
   end <- as.POSIXct(paste(format(chunk$end), "23:59:59"), tz = "UTC")
   step <- .num_or_na(e$time_step_hours)
-  if (is.finite(step) && step > 0 && step < 24) {
+  if (is.finite(step) && step > 0 && step <= 25) {
     period <- .download_period(request$time, step)
     if (chunk$start == period[1]) start <- start - step * 3600
     if (chunk$end == period[2]) end <- end + step * 3600
@@ -571,6 +586,12 @@ cmems_download <- function(request, dry_run = FALSE, overwrite = FALSE) {
                                       dry_run = TRUE)),
       error = function(err) err
     )
+    # The toolbox returns nothing, without an error, when it cannot ask for a
+    # username: nothing was checked, so that is not "ok"
+    if (is.null(res)) {
+      res <- simpleError(paste("the toolbox returned nothing, which usually means you are",
+                               "not logged in; run cmems_login() and try again"))
+    }
     message(if (inherits(res, "error")) "problem" else "ok")
     for (w in .useful_toolbox_warnings(take_warnings(), e)) {
       message("  Note from the Copernicus Marine toolbox: ", w)

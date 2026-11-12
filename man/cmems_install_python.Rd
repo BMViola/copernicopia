@@ -18,11 +18,20 @@ cmems_install_python(envname = "r-copernicopia", method = "auto", ...)
 }
 \description{
 Installs the \code{copernicusmarine} Python toolbox (version 2 or later) into a
-dedicated Python environment. You only need this with reticulate older than
-1.41; newer versions set the environment up automatically the first time a
-copernicopia function needs Python.
+dedicated Python environment, \code{r-copernicopia}. You need this with
+reticulate older than 1.41. Newer versions of reticulate set an environment
+up automatically the first time a copernicopia function needs Python, so
+there you only need this if that automatic setup does not work on your
+computer.
 }
 \details{
+Once the \code{r-copernicopia} environment exists, copernicopia uses it, with
+any version of reticulate, unless you have chosen another Python yourself
+(with \code{reticulate::use_condaenv()}, \code{use_virtualenv()} or \code{use_python()},
+or the \code{RETICULATE_PYTHON} environment variable). To go back to
+reticulate's automatic environment, remove it with
+\code{reticulate::virtualenv_remove("r-copernicopia")}.
+
 If you already have a conda environment with \code{copernicusmarine}, you can use
 it instead by running \code{reticulate::use_condaenv("cmems")} at the start of
 your session, before calling any copernicopia function.

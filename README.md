@@ -10,7 +10,7 @@ Copernicopia (Copernicus cornucopia) walks you through logging in, choosing vari
 
 If Copernicopia helps your work, please cite it:
 
-> Viola, B. (2026). *Copernicopia: Download Copernicus Marine Data and Append It to Your Own Data*. R package version 1.0.1. Zenodo. https://doi.org/10.5281/zenodo.23901767
+> Viola, B. (2026). *Copernicopia: Download Copernicus Marine Data and Append It to Your Own Data*. R package version 1.1.0. Zenodo. https://doi.org/10.5281/zenodo.23901767
 
 In BibTeX:
 
@@ -19,7 +19,7 @@ In BibTeX:
   title  = {Copernicopia: Download Copernicus Marine Data and Append It to Your Own Data},
   author = {Benjamin Viola},
   year   = {2026},
-  note   = {R package version 1.0.1},
+  note   = {R package version 1.1.0},
   doi    = {10.5281/zenodo.23901767},
   url    = {https://github.com/BMViola/copernicopia},
 }
@@ -42,7 +42,7 @@ You also need a free [Copernicus Marine account](https://data.marine.copernicus.
 
 Copernicopia needs Python with `copernicusmarine` version 2 or later.
 
-- **reticulate 1.41 or later:** there's nothing you need to do. The Python environment is set up automatically the first time it's needed.
+- **reticulate 1.41 or later:** there's nothing you need to do. The Python environment is set up automatically the first time it's needed. If that automatic setup doesn't work on your computer, run `copernicopia::cmems_install_python()` once, then restart R: the environment it makes is used from then on.
 - **Older reticulate:** run `copernicopia::cmems_install_python()` once, then restart R.
 - **Existing conda environment** (for example one made with `conda create -n cmems -c conda-forge copernicusmarine`): run `reticulate::use_condaenv("cmems")` at the start of your R session, before any Copernicopia function.
 - **NOTE: Existing conda environment** if the above point is confusing, see the opening steps to ([BMViola/Copernicus-Bulk-Files](https://github.com/BMViola/Copernicus-Bulk-Files))
@@ -164,11 +164,14 @@ req <- cmems_request(
 Put that in a script to rerun the same download without any prompts:
 
 ```r
+cmems_login()                         # once per computer; your credentials are saved
 cmems_download(req, dry_run = TRUE)   # check products and estimate size
 cmems_download(req)                   # download
 obs <- cmems_extract(obs, req)        # append values to your data
 cmems_sources(obs)                    # which dataset each new column came from
 ```
+
+`cmems_download()` checks that you are logged in before it starts, and stops with a message if you are not (in a script) or asks you to log in (in an interactive session).
 
 `cmems_request()` also gives you control the wizard doesn't:
 
@@ -195,11 +198,11 @@ Regions that cross 180° are downloaded as one continuous file, with longitudes 
 ## How values are matched
 
 - **Space:** each row gets the value of the grid cell it falls in. Rows outside the downloaded region, or on land, get `NA`.
-- **Time:** with the default `time_match = "period"`, daily data are matched on the calendar day (UTC), monthly data on the calendar month and yearly data on the year. Hourly and other resolutions use the nearest time step. Use `time_match = "nearest"` to always take the nearest time step. Rows outside the downloaded period get `NA`.
+- **Time:** with the default `time_match = "period"`, daily data are matched on the calendar day (UTC), monthly data on the calendar month and yearly data on the year. Hourly and other resolutions use the nearest time step. Use `time_match = "nearest"` to always take the nearest time step (for monthly and yearly products, the nearest of the downloaded months or years). Rows outside the downloaded period get `NA`.
 - **Depth:** for 3D products, rows are matched to the nearest depth level if you name a depth column (`depth = "my_depth_col"`), otherwise to the shallowest downloaded level.
 - If a variable name is already a column in your data, the new column gets the dataset ID as a suffix.
 
-Times can be `Date`, `POSIXct` or text like `"2025-07-15 13:00"`. `Date` and text values are read as UTC.
+Times can be `Date`, `POSIXct` or text. Text must be written year-month-day, like `"2025-07-15"`, `"2025-07-15 13:00"` or `"2025-07-15T13:00:00+10:00"`. `Date` values and text are read as UTC, unless the text ends with a time zone (`Z`, or an offset such as `+10:00`), which is then applied. Each value is read on its own, so a column can mix dates with and without a time of day (as `write.csv()` writes times that fall on midnight). Other layouts, such as day/month/year, stop with an error rather than being guessed; convert them first, for example with `as.Date(x, format = "%d/%m/%Y")`.
 
 ## Validation
 
@@ -218,7 +221,7 @@ Copernicopia's values have been checked against an independent extraction of the
 
   Partial months or years at the ends of the period are named by their exact dates, e.g. `..._20250710-20250731.nc`. Products are never split more finely than their own time step: monthly data asked for by day are split by month, and yearly data by year.
 - Products coarser than daily are downloaded for whole months (or years), so every date in your period has its value.
-- Products finer than daily (e.g. hourly) get one extra time step at each end of the period, so every point is matched to its nearest time step.
+- Daily and finer products (e.g. hourly) get one extra time step at each end of the period, so every point can be matched to its nearest time step.
 - The region is widened by one grid cell on each side, so observations right at its edge still get values.
 - While downloading, each file gets a line as it starts and finishes, with the overall progress and an estimate of the time left:
 
@@ -285,7 +288,7 @@ Either way, files that finished downloading are kept and partly downloaded files
 | `cmems_extract()` | Append values to a data frame |
 | `cmems_sources()` | List where each appended column came from |
 | `cmems_getreadme()` | Sources and citations for everything you downloaded |
-| `cmems_install_python()` | Install the Python backend (older reticulate only) |
+| `cmems_install_python()` | Install the Python backend (older reticulate, or if the automatic setup fails) |
 
 ## Limitations
 

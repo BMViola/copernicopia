@@ -225,3 +225,54 @@ test_that("the wizard does not repeat cmems_request()'s note about wide regions"
   expect_equal(req$lon, c(100, -100))
   expect_false(any(grepl("Note: lon =", msgs, fixed = TRUE)))
 })
+
+test_that("data with no usable coordinates stops with an explanation", {
+  local_mocked_bindings(
+    cmems_login = function(...) stop("should not log in"),
+    cmems_catalogue = function(...) stop("should not fetch the catalogue")
+  )
+  withr::local_options(copernicopia.input = script_input(c("", "")))
+  obs <- data.frame(lon = NA_real_, lat = -50, date = as.Date("2025-07-15"))
+  capture.output(expect_error(cmems_wizard(obs), "The lon column 'lon' has no usable values"))
+  obs <- data.frame(lon = 130, lat = -50, date = as.Date(NA))
+  capture.output(expect_error(cmems_wizard(obs), "The time column 'date' has no usable values"))
+})
+
+test_that("a depth column that does not exist is reported before anything else", {
+  local_mocked_bindings(cmems_login = function(...) stop("should not log in"))
+  withr::local_options(copernicopia.input = function(prompt) stop("should not ask anything"))
+  obs <- data.frame(lon = 130, lat = -50, date = as.Date("2025-07-15"))
+  capture.output(expect_error(cmems_wizard(obs, depth = "depth_m"), "Could not find the depth column"))
+})
+
+test_that("missing coordinates in some rows are left out of the suggested region", {
+  cols <- list(lon = "lon", lat = "lat", time = "date")
+  obs <- data.frame(lon = c(110, NA, 150), lat = c(-50, -45, NA),
+                    date = as.Date(c("2025-07-15", NA, "2025-08-31")), d = c(NA, 20, 5))
+  ext <- copernicopia:::.data_extent(obs, cols, "d")
+  expect_equal(ext$lon, c(110, 150))
+  expect_equal(ext$lat, c(-50, -45))
+  expect_equal(ext$time, as.Date(c("2025-07-15", "2025-08-31")))
+  expect_equal(ext$depth, c(5, 20))
+  obs$d <- NA_real_
+  expect_null(copernicopia:::.data_extent(obs, cols, "d")$depth)
+})
+
+test_that("step C treats '(' and digits with a leading zero as text to filter by", {
+  cat_df <- fake_catalogue()
+  local_mocked_bindings(
+    cmems_login = function(...) invisible(TRUE),
+    cmems_catalogue = function(...) cat_df,
+    cmems_download = function(...) stop("should not download")
+  )
+  answers <- c("14", "",          # B: sea ice concentration (two products)
+               "(",               # not a valid regular expression
+               "001",             # part of a product name, not product 1
+               "2",               # the second product
+               "100", "160", "-70", "-60", "2025-07-01", "2025-07-31", "",
+               file.path(tempdir(), "x"), "n", "n")
+  withr::local_options(copernicopia.input = script_input(answers))
+  expect_no_warning(out <- capture.output(req <- cmems_wizard()))
+  expect_equal(names(req$datasets), "synth_ice-south_P1D")
+  expect_equal(sum(grepl("Nothing matches that text; showing the full list.", out, fixed = TRUE)), 2)
+})

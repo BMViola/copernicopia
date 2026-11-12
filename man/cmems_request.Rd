@@ -29,11 +29,14 @@ while \code{c(-170, 170)} is everything except that strip.}
 \item{lat}{The southern and northern edges of the region, \code{c(south, north)},
 in degrees.}
 
-\item{time}{Start and end dates, \code{c("YYYY-MM-DD", "YYYY-MM-DD")}.}
+\item{time}{Start and end dates, \code{c("YYYY-MM-DD", "YYYY-MM-DD")}, as text
+written year-month-day or as \code{Date} values. Other layouts, such as
+day/month/year, are an error rather than a guess.}
 
-\item{depth}{Depth range in metres, \code{c(min, max)}, used for datasets with a
-depth axis. Either one range for all of them, or a named list with one
-range per dataset ID.}
+\item{depth}{Depth range in metres, \code{c(min, max)} with \code{min <= max}, used
+for datasets with a depth axis. Either one range for all of them, or a
+named list with one range per dataset ID (datasets left out of the list
+get the surface layer, \code{c(0, 1)}).}
 
 \item{chunk}{How to split the download into files: \code{"month"} (the
 default) for one file per calendar month, \code{"day"} for one file per day,

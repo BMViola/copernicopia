@@ -61,6 +61,7 @@ cmems_wizard <- function(data = NULL, lon = NULL, lat = NULL, time = NULL,
   extent <- NULL
   if (!is.null(data)) {
     if (!is.data.frame(data)) stop("`data` must be a data frame.", call. = FALSE)
+    if (!is.null(depth)) depth <- .depth_column(data, depth)
     .rule("Your data")
     cols <- .wizard_columns(data, lon, lat, time)
     extent <- .data_extent(data, cols, depth)
@@ -171,13 +172,26 @@ cmems_wizard <- function(data = NULL, lon = NULL, lat = NULL, time = NULL,
 }
 
 .data_extent <- function(data, cols, depth = NULL) {
-  lon <- .lon_extent(as.numeric(data[[cols$lon]]))
-  lat <- as.numeric(data[[cols$lat]])
-  ms <- .as_utc_ms(data[[cols$time]])
+  # Missing values are left out; a column with nothing else cannot give an
+  # extent to suggest a region or period from
+  usable <- function(v, what) {
+    v <- v[is.finite(v)]
+    if (length(v) == 0) {
+      stop(sprintf("The %s column '%s' has no usable values, so there is nothing to match data to.",
+                   what, cols[[what]]), call. = FALSE)
+    }
+    v
+  }
+  lon <- .lon_extent(usable(suppressWarnings(as.numeric(data[[cols$lon]])), "lon"))
+  lat <- usable(suppressWarnings(as.numeric(data[[cols$lat]])), "lat")
+  ms <- usable(.as_utc_ms(data[[cols$time]]), "time")
   dates <- as.Date(as.POSIXct(ms / 1000, origin = "1970-01-01", tz = "UTC"))
-  d <- if (is.null(depth)) NULL else range(as.numeric(data[[depth]]), na.rm = TRUE)
-  list(lon = lon, lat = range(lat, na.rm = TRUE),
-       time = range(dates, na.rm = TRUE), depth = d)
+  d <- NULL
+  if (!is.null(depth)) {
+    d <- suppressWarnings(as.numeric(data[[depth]]))
+    d <- if (any(is.finite(d))) range(d[is.finite(d)]) else NULL
+  }
+  list(lon = lon, lat = range(lat), time = range(dates), depth = d)
 }
 
 # Step B ---------------------------------------------------------------------
@@ -243,9 +257,11 @@ cmems_wizard <- function(data = NULL, lon = NULL, lat = NULL, time = NULL,
       .normalise_term(catalogue$variable) == .normalise_term(keyword)
   } else {
     pattern <- gsub("[ _]+", "[ _]", keyword)
+    # Text that is not a valid regular expression, such as "(", is matched as
+    # it is typed (grepl() warns as well as stopping, hence suppressWarnings)
     hits <- tryCatch(
-      grepl(pattern, key, ignore.case = TRUE) |
-        grepl(pattern, catalogue$variable, ignore.case = TRUE),
+      suppressWarnings(grepl(pattern, key, ignore.case = TRUE) |
+                         grepl(pattern, catalogue$variable, ignore.case = TRUE)),
       error = function(e) grepl(keyword, key, fixed = TRUE)
     )
   }
@@ -327,6 +343,9 @@ cmems_wizard <- function(data = NULL, lon = NULL, lat = NULL, time = NULL,
       next
     }
     num <- .parse_numbers(answer)
+    # Digits with a leading zero, such as "001" or "025", are part of a
+    # product's name rather than a choice from the list
+    if (grepl("^0[0-9]", answer)) num <- NULL
     if (!is.null(num)) {
       if (identical(as.integer(num), 0L)) {
         cat(sprintf("Skipped %s.\n", selection$label))
@@ -339,7 +358,8 @@ cmems_wizard <- function(data = NULL, lon = NULL, lat = NULL, time = NULL,
     text <- paste(summ$dataset_id, summ$product_title, summ$variables,
                   .step_label(summ$time_step_hours), summ$processing_level)
     hit <- grepl(tolower(answer), tolower(text), fixed = TRUE) |
-      tryCatch(grepl(answer, text, ignore.case = TRUE), error = function(e) FALSE)
+      tryCatch(suppressWarnings(grepl(answer, text, ignore.case = TRUE)),
+               error = function(e) FALSE)
     if (!any(hit)) {
       text_all <- paste(summ_all$dataset_id, summ_all$product_title)
       n_elsewhere <- if (hidden() > 0) {

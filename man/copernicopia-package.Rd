@@ -17,7 +17,7 @@ Useful links:
 
 }
 \author{
-\strong{Maintainer}: Benjamin Viola \email{benjamin.viola@utas.edu.au}
+\strong{Maintainer}: Benjamin Viola \email{benjamin.viola@utas.edu.au} (\href{https://orcid.org/0000-0003-2620-2914}{ORCID})
 
 }
 \keyword{internal}

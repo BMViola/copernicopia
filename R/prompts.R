@@ -94,9 +94,10 @@
   repeat {
     answer <- .read_input(shown)
     if (!nzchar(answer) && !is.null(default)) return(as.Date(default))
-    value <- tryCatch(as.Date(answer, tryFormats = c("%Y-%m-%d", "%Y/%m/%d")),
-                      error = function(e) NA)
-    if (!is.na(value)) return(value)
+    # Only year-month-day is accepted: as.Date() would read 15/07/2025 as a
+    # date in the year 15
+    value <- tryCatch(.as_dates(answer), error = function(e) as.Date(NA))
+    if (length(value) == 1 && !is.na(value)) return(value)
     cat("Please enter a date as YYYY-MM-DD.\n")
   }
 }

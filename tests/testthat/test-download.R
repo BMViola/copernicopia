@@ -51,10 +51,19 @@ test_that("files are downloaded by day, failures logged, and reruns resume", {
   log <- utils::read.csv(file.path(out_dir, "cmems_download_log.csv"))
   expect_equal(nrow(log), 3)
 
-  # What the worker asked of the toolbox: exact days, padded region, depth
-  a <- read_json(file.path(rec, "synth_phy_P1D-m_20250731.json"))
-  expect_equal(a$start_datetime, "2025-07-31T00:00:00")
+  # What the worker asked of the toolbox: the days, padded region and depth.
+  # The first file starts one time step (a day) early and the last ends one
+  # late, so every point has its nearest time step; the stand-in toolbox names
+  # its records by the first day asked for
+  a <- read_json(file.path(rec, "synth_phy_P1D-m_20250730.json"))
+  expect_equal(a$start_datetime, "2025-07-30T00:00:00")
   expect_equal(a$end_datetime, "2025-07-31T23:59:59")
+  middle <- read_json(file.path(rec, "synth_phy_P1D-m_20250801.json"))
+  expect_equal(c(middle$start_datetime, middle$end_datetime),
+               c("2025-08-01T00:00:00", "2025-08-01T23:59:59"))
+  last <- read_json(file.path(rec, "synth_phy_P1D-m_20250802.json"))
+  expect_equal(c(last$start_datetime, last$end_datetime),
+               c("2025-08-02T00:00:00", "2025-08-03T23:59:59"))
   expect_equal(a$coordinates_selection_method, "inside")
   expect_equal(c(a$minimum_longitude, a$maximum_longitude), c(99.5, 160.5))
   expect_equal(c(a$minimum_latitude, a$maximum_latitude), c(-70.5, -29.5))
@@ -209,7 +218,8 @@ start_background_download <- function(req, env_vars) {
   }, args = list(root = root, dev = dev, req = req,
                  opts = list(copernicopia.subset_function = "fake_toolbox:subset",
                              copernicopia.python_path = file.path(tempdir(), "fake-toolbox"),
-                             copernicopia.live_progress = FALSE)),
+                             copernicopia.live_progress = FALSE,
+                             copernicopia.check_login = FALSE)),
   env = c(callr::rcmd_safe_env(), Sys.getenv(), env_vars))
 }
 
@@ -255,7 +265,8 @@ test_that("a stuck worker is stopped by its own session when cmems_abort() asks"
   req <- cmems_request(list("synth_phy_P1D-m" = "zos"), c(100, 160), c(-70, -30),
                        c("2025-07-01", "2025-07-02"), chunk = "day",
                        out_dir = withr::local_tempdir(), catalogue = fake_catalogue())
-  bg <- start_background_download(req, c(FAKE_HANG_ON = "20250701"))
+  # The first file starts a day early, on 30 June (see .chunk_times())
+  bg <- start_background_download(req, c(FAKE_HANG_ON = "20250630"))
   on.exit(bg$kill(), add = TRUE)
   expect_true(wait_for_heartbeat())
   Sys.sleep(2)
@@ -308,7 +319,7 @@ test_that("the toolbox's false alarm about regions crossing 180 on global grids 
   expect_equal(copernicopia:::.useful_toolbox_warnings(w, list()), w)
 })
 
-test_that("data finer than daily get one extra time step at each end of the period", {
+test_that("daily and finer data get one extra time step at each end of the period", {
   cat_df <- fake_catalogue()
   cat_df$time_step_hours[cat_df$dataset_id == "synth_old_P1D"] <- 1
   cat_df$time_start[cat_df$dataset_id == "synth_old_P1D"] <- "2025-01-01T00:00:00"
@@ -321,12 +332,164 @@ test_that("data finer than daily get one extra time step at each end of the peri
   # Hourly, by month: July starts an hour early, August ends an hour late; they meet without overlap
   expect_equal(times[[1]], c("2025-07-09T23:00:00", "2025-07-31T23:59:59"))
   expect_equal(times[[2]], c("2025-08-01T00:00:00", "2025-08-21T00:59:59"))
-  # Daily data are unchanged
+  # Daily, by month: July starts a day early and August ends a day late, so a
+  # point late on the last day has the next day's time step to be nearest to
   req_d <- cmems_request(list("synth_phy_P1D-m" = "zos"), c(100, 160), c(-70, -30),
                          c("2025-07-10", "2025-08-20"), out_dir = tempdir(), catalogue = fake_catalogue())
   e_d <- req_d$datasets[[1]]
   ch_d <- copernicopia:::.time_chunks(req_d$time, e_d$time_step_hours, req_d$chunk)
-  expect_equal(copernicopia:::.chunk_times(req_d, e_d, ch_d[1, ]), c("2025-07-10T00:00:00", "2025-07-31T23:59:59"))
+  expect_equal(copernicopia:::.chunk_times(req_d, e_d, ch_d[1, ]), c("2025-07-09T00:00:00", "2025-07-31T23:59:59"))
+  expect_equal(copernicopia:::.chunk_times(req_d, e_d, ch_d[2, ]), c("2025-08-01T00:00:00", "2025-08-21T23:59:59"))
+  # A single file for the whole period gets both
+  req_a <- cmems_request(list("synth_phy_P1D-m" = "zos"), c(100, 160), c(-70, -30),
+                         c("2025-07-10", "2025-08-20"), chunk = "all", out_dir = tempdir(),
+                         catalogue = fake_catalogue())
+  ch_a <- copernicopia:::.time_chunks(req_a$time, e_d$time_step_hours, req_a$chunk)
+  expect_equal(copernicopia:::.chunk_times(req_a, e_d, ch_a[1, ]), c("2025-07-09T00:00:00", "2025-08-21T23:59:59"))
+  # Monthly data are downloaded as whole months instead, with nothing added
+  req_m <- cmems_request(list("synth_chl_P1M" = "CHL"), c(100, 160), c(-70, -30),
+                         c("2025-07-10", "2025-08-20"), out_dir = tempdir(), catalogue = fake_catalogue())
+  e_m <- req_m$datasets[[1]]
+  ch_m <- copernicopia:::.time_chunks(req_m$time, e_m$time_step_hours, req_m$chunk)
+  expect_equal(copernicopia:::.chunk_times(req_m, e_m, ch_m[1, ]), c("2025-07-01T00:00:00", "2025-07-31T23:59:59"))
+  expect_equal(copernicopia:::.chunk_times(req_m, e_m, ch_m[2, ]), c("2025-08-01T00:00:00", "2025-08-31T23:59:59"))
+})
+
+test_that("with nearest matching, a point late on the last day gets the next day's time step", {
+  skip_if_no_python()
+  # Files as cmems_download() now asks for them: 9 July to 21 July for a
+  # request for 10 to 20 July, with one time step a day at 00:00
+  req <- cmems_request(list("synth_phy_P1D-m" = "zos"), c(100, 160), c(-70, -30),
+                       c("2025-07-10", "2025-07-20"), out_dir = withr::local_tempdir(),
+                       catalogue = fake_catalogue())
+  e <- req$datasets[[1]]
+  chunk <- copernicopia:::.time_chunks(req$time, e$time_step_hours, req$chunk)
+  asked <- copernicopia:::.chunk_times(req, e, chunk[1, ])
+  expect_equal(asked, c("2025-07-09T00:00:00", "2025-07-21T23:59:59"))
+  dir <- copernicopia:::.dataset_dir(req, e)
+  dir.create(dir, recursive = TRUE)
+  reticulate::py_run_string("
+import numpy as np, pandas as pd, xarray as xr
+def _midnight_file(path, start, end):
+    lat = np.arange(-70, -29.9, 0.5); lon = np.arange(100, 160.01, 0.5)
+    t = pd.date_range(start[:10], end[:10], freq='D')
+    v = t.day.values.astype(float)[:, None, None] + 0 * lat[None, :, None] + 0 * lon[None, None, :]
+    xr.Dataset({'zos': (('time', 'latitude', 'longitude'), v)},
+               coords=dict(time=t, latitude=lat, longitude=lon)).to_netcdf(path, engine='h5netcdf')
+")
+  reticulate::py$`_midnight_file`(file.path(dir, "synth_phy_P1D-m_20250710-20250720.nc"), asked[1], asked[2])
+  obs <- data.frame(lon = 130, lat = -50,
+                    time = as.POSIXct(c("2025-07-10 01:00", "2025-07-15 13:00", "2025-07-20 11:00",
+                                        "2025-07-20 13:00", "2025-07-20 23:00"), tz = "UTC"))
+  # Value = day of the month of the time step used
+  near <- suppressMessages(cmems_extract(obs, req, time_match = "nearest"))
+  expect_equal(near$zos, c(10, 16, 20, 21, 21))
+  # Matching on the calendar day is unchanged by the extra time steps
+  day <- suppressMessages(cmems_extract(obs, req))
+  expect_equal(day$zos, c(10, 15, 20, 20, 20))
+})
+
+test_that("downloads stop with a clear message when not logged in", {
+  skip_if_no_python()
+  use_fake_worker_toolbox()
+  withr::local_options(copernicopia.check_login = TRUE, copernicopia.input = NULL)
+  state <- copernicopia:::.cmems
+  old <- state$logged_in
+  withr::defer(assign("logged_in", old, envir = state))
+  state$logged_in <- NULL
+  checks <- 0
+  answer <- FALSE
+  toolbox <- list(
+    login = function(...) {
+      checks <<- checks + 1
+      if (is.na(answer)) stop("could not connect to the authentication system")
+      answer
+    },
+    subset = function(...) stop("should not be reached")
+  )
+  local_mocked_bindings(.cm = function() toolbox)
+  out_dir <- withr::local_tempdir()
+  req <- cmems_request(list("synth_phy_P1D-m" = "zos"), c(100, 160), c(-70, -30),
+                       c("2025-07-01", "2025-07-02"), chunk = "day", out_dir = out_dir,
+                       catalogue = fake_catalogue())
+  # No saved credentials: nothing is started, for a download or a dry run
+  expect_error(cmems_download(req), "not logged in to Copernicus Marine.*cmems_login\\(\\)")
+  expect_error(cmems_download(req, dry_run = TRUE), "not logged in to Copernicus Marine")
+  expect_length(list.files(out_dir, pattern = "\\.nc$", recursive = TRUE), 0)
+  expect_false(file.exists(file.path(out_dir, "cmems_download_log.csv")))
+  expect_length(control_dirs(), 0)
+  expect_equal(checks, 2)
+
+  # If the check cannot be made, the download goes ahead and reports what happens
+  answer <- NA
+  expect_false(copernicopia:::.require_login())
+  expect_null(state$logged_in)
+
+  # Valid credentials are checked once a session
+  answer <- TRUE
+  before <- checks
+  expect_true(copernicopia:::.require_login())
+  expect_true(copernicopia:::.require_login())
+  expect_equal(checks, before + 1)
+  res <- suppressMessages(cmems_download(req))
+  expect_equal(res$result, c("ok", "ok"))
+  expect_equal(checks, before + 1)
+
+  # Files that are already there need no login to be found again
+  state$logged_in <- NULL
+  answer <- FALSE
+  msgs <- capture_messages(cmems_download(req))
+  expect_match(msgs[1], "All 2 file(s) are already downloaded", fixed = TRUE)
+})
+
+test_that("where questions can be asked, a download asks you to log in", {
+  withr::local_options(copernicopia.check_login = TRUE,
+                       copernicopia.input = script_input(c("someone", "secret")))
+  state <- copernicopia:::.cmems
+  old <- state$logged_in
+  withr::defer(assign("logged_in", old, envir = state))
+  state$logged_in <- NULL
+  given <- NULL
+  toolbox <- list(login = function(username = NULL, password = NULL, ...) {
+    if (is.null(username)) return(FALSE)   # no saved credentials
+    given <<- c(username, password)
+    TRUE
+  })
+  local_mocked_bindings(.cm = function() toolbox, .quiet_toolbox = function() function() invisible())
+  msgs <- capture_messages(out <- capture.output(ok <- copernicopia:::.require_login()))
+  expect_true(ok)
+  expect_equal(given, c("someone", "secret"))
+  expect_true(state$logged_in)
+  expect_match(paste(msgs, collapse = ""), "No valid Copernicus Marine credentials found.*Logged in\\.")
+  expect_true(any(grepl("Copernicus Marine username: someone", out, fixed = TRUE)))
+})
+
+test_that("a file the toolbox silently did not write is a failure that mentions logging in", {
+  skip_if_no_python()
+  use_fake_worker_toolbox()
+  # As the real toolbox behaves in the download process without saved
+  # credentials: it prints "Abort" and returns, with no error
+  withr::local_envvar(FAKE_SILENT_ON = "20250702")
+  req <- cmems_request(list("synth_phy_P1D-m" = "zos"), c(100, 160), c(-70, -30),
+                       c("2025-07-01", "2025-07-02"), chunk = "day",
+                       out_dir = withr::local_tempdir(), catalogue = fake_catalogue())
+  msgs <- capture_messages(res <- cmems_download(req))
+  expect_equal(res$result[1], "ok")
+  expect_match(res$result[2], "^FAILED: the toolbox did not write a file\\. If you are not logged in, run cmems_login\\(\\)")
+  expect_match(paste(msgs, collapse = ""), "1 file\\(s\\) ready, 1 failed")
+})
+
+test_that("a dry run that gets nothing back from the toolbox reports a problem, not ok", {
+  tb <- list(subset = function(...) NULL)
+  local_mocked_bindings(.cm = function() tb)
+  req <- cmems_request(list("synth_phy_P1D-m" = "zos"), c(100, 160), c(-70, -30),
+                       c("2025-07-01", "2025-09-30"), out_dir = withr::local_tempdir(),
+                       catalogue = fake_catalogue())
+  msgs <- capture_messages(out <- capture.output(est <- cmems_download(req, dry_run = TRUE)))
+  expect_match(paste(msgs, collapse = ""), "Checking 1/1: synth_phy_P1D-m ... problem", fixed = TRUE)
+  expect_false(est$ok)
+  expect_match(est$error, "not logged in; run cmems_login()", fixed = TRUE)
+  expect_true(any(grepl("PROBLEM - the toolbox returned nothing", out)))
 })
 
 test_that("temporary names are short, and Windows path limits are warned about", {

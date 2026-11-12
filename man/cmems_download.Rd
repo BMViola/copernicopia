@@ -24,7 +24,9 @@ size estimates.
 Downloads NetCDF files for every dataset in a \code{\link[=cmems_request]{cmems_request()}}, split into
 files as set by its \code{chunk} (one per month by default). Products coarser
 than daily are downloaded for whole months or years, so every date in the
-period has its time step. Files that already exist are skipped, so an
+period has its time step. Daily and finer products get one extra time step
+at each end of the period, so every point has its nearest time step to hand
+(see \code{time_match} in \code{\link[=cmems_extract]{cmems_extract()}}). Files that already exist are skipped, so an
 interrupted download can simply be restarted. Each file is written under a
 temporary name and renamed only once complete, so a half-finished file is
 never mistaken for a finished one. Every attempt is logged to
@@ -40,6 +42,13 @@ with the overall percentage done and an estimate of the time left. In
 interactive sessions, the line for the file in progress also shows a
 running timer and the amount downloaded so far, updated twice a second
 (turn this off with \code{options(copernicopia.live_progress = FALSE)}).
+
+\strong{Logging in.} Downloading needs a Copernicus Marine account. Before
+anything is downloaded or checked, your saved credentials are checked once
+per session: if there are none, you are asked to log in (in an interactive
+session) or the download stops with a message saying so (in a script); run
+\code{\link[=cmems_login]{cmems_login()}} first. Set \code{options(copernicopia.check_login = FALSE)} to
+skip this check.
 
 \strong{Cancelling.} The downloads run in a separate Python process. Press Esc
 to stop both R and that process at once. If R is not responding, run

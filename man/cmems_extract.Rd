@@ -22,8 +22,7 @@ cmems_extract(
 
 \item{lon, lat, time}{Names of the longitude, latitude and time columns. If
 \code{NULL}, common names (\code{lon}, \code{longitude}, \code{lat}, \code{date}, \code{datetime}...)
-are tried. Times can be \code{Date}, \code{POSIXct} or text such as
-\code{"2025-07-15 13:00"}; text and \code{Date} values are read as UTC.}
+are tried. Times can be \code{Date}, \code{POSIXct} or text; see Details.}
 
 \item{depth}{Optional name of a depth column (metres, positive down).}
 
@@ -50,6 +49,10 @@ and yearly data on the year, so an observation at 15:00 on 10 March gets
 that day's (or that month's) value. Other resolutions (hourly, 3-hourly,
 8-day...) use the nearest time step. \code{time_match = "nearest"} always uses
 the nearest time step. Matches more than one time step away are rejected.
+Daily and finer products are downloaded with one extra time step at each
+end of the period, so the nearest time step is always among the files. For
+monthly and yearly products, which are downloaded as whole months or years,
+\code{"nearest"} takes the nearest of the downloaded time steps.
 
 \strong{Space and depth.} Values come from the nearest grid cell; rows outside
 the downloaded region get \code{NA}. For datasets with a depth axis, rows are
@@ -57,4 +60,13 @@ matched to the nearest depth level when \code{depth} names a column, and to the
 shallowest downloaded level otherwise.
 
 Rows whose time falls outside the downloaded period, or on land, get \code{NA}.
+
+\strong{Times as text.} Text times must be written year-month-day, such as
+\code{"2025-07-15"}, \code{"2025-07-15 13:00"} or \code{"2025-07-15T13:00:05"}. They are
+read as UTC unless a time zone follows (\code{"2025-07-15T13:00:00+10:00"};
+\code{"Z"} means UTC). Each value is read on its own, so a column may mix dates
+with and without a time of day. Empty text is treated as missing. Any other
+format, such as day/month/year, stops with an error rather than being
+guessed: convert such a column first, for example with
+\code{as.Date(x, format = "\%d/\%m/\%Y")}. \code{Date} values are midnight UTC.
 }

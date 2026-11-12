@@ -22,9 +22,18 @@
 #' Install the Python backend
 #'
 #' Installs the `copernicusmarine` Python toolbox (version 2 or later) into a
-#' dedicated Python environment. You only need this with reticulate older than
-#' 1.41; newer versions set the environment up automatically the first time a
-#' copernicopia function needs Python.
+#' dedicated Python environment, `r-copernicopia`. You need this with
+#' reticulate older than 1.41. Newer versions of reticulate set an environment
+#' up automatically the first time a copernicopia function needs Python, so
+#' there you only need this if that automatic setup does not work on your
+#' computer.
+#'
+#' Once the `r-copernicopia` environment exists, copernicopia uses it, with
+#' any version of reticulate, unless you have chosen another Python yourself
+#' (with `reticulate::use_condaenv()`, `use_virtualenv()` or `use_python()`,
+#' or the `RETICULATE_PYTHON` environment variable). To go back to
+#' reticulate's automatic environment, remove it with
+#' `reticulate::virtualenv_remove("r-copernicopia")`.
 #'
 #' If you already have a conda environment with `copernicusmarine`, you can use
 #' it instead by running `reticulate::use_condaenv("cmems")` at the start of
@@ -42,11 +51,27 @@ cmems_install_python <- function(envname = "r-copernicopia", method = "auto", ..
   invisible(NULL)
 }
 
+# Whether the user has already said which Python to use: with an environment
+# variable, or with reticulate::use_python(), use_virtualenv() or
+# use_condaenv() (which reticulate records in its own settings).
+.python_already_chosen <- function() {
+  if (nzchar(Sys.getenv("RETICULATE_PYTHON")) || nzchar(Sys.getenv("RETICULATE_PYTHON_ENV"))) {
+    return(TRUE)
+  }
+  chosen <- tryCatch(
+    get(".globals", envir = asNamespace("reticulate"))$required_python_version,
+    error = function(e) NULL
+  )
+  !is.null(chosen)
+}
+
 .ensure_python <- function() {
   if (isTRUE(.cmems$ready)) return(invisible(TRUE))
+  # The environment made by cmems_install_python() is used whenever it exists
+  # (with any version of reticulate), unless Python is already running or the
+  # user has chosen another one
   if (!reticulate::py_available(initialize = FALSE) &&
-      !.has_py_require() &&
-      !nzchar(Sys.getenv("RETICULATE_PYTHON")) &&
+      !.python_already_chosen() &&
       reticulate::virtualenv_exists("r-copernicopia")) {
     reticulate::use_virtualenv("r-copernicopia", required = TRUE)
   }
@@ -96,6 +121,7 @@ cmems_login <- function(username = NULL, password = NULL, ask = interactive()) {
   if (is.null(username) && is.null(password)) {
     if (isTRUE(cm$login(check_credentials_valid = TRUE))) {
       message("Logged in to Copernicus Marine (saved credentials).")
+      .cmems$logged_in <- TRUE
       return(invisible(TRUE))
     }
     if (!ask) {
@@ -112,5 +138,36 @@ cmems_login <- function(username = NULL, password = NULL, ask = interactive()) {
     stop("Login failed. Check your username and password.", call. = FALSE)
   }
   message("Logged in. Your credentials are saved for future sessions.")
+  .cmems$logged_in <- TRUE
   invisible(TRUE)
+}
+
+# Called before anything is downloaded or checked. Without saved credentials
+# the toolbox would ask for a username itself, in the middle of a progress
+# line or, in the separate download process, not at all: every file would then
+# fail without saying why. So the credentials are checked first, once per
+# session: in an interactive session the user is asked to log in, otherwise
+# the download stops with a clear message.
+#
+# If the check itself cannot be made (for example the login server cannot be
+# reached), the download goes ahead and reports whatever happens.
+# options(copernicopia.check_login = FALSE) skips the check.
+.require_login <- function() {
+  if (!isTRUE(getOption("copernicopia.check_login", TRUE))) return(invisible(TRUE))
+  if (isTRUE(.cmems$logged_in)) return(invisible(TRUE))
+  cm <- .cm()
+  restore <- .quiet_toolbox()
+  on.exit(restore(), add = TRUE)
+  ok <- tryCatch(isTRUE(cm$login(check_credentials_valid = TRUE)), error = function(e) NA)
+  if (is.na(ok)) return(invisible(FALSE))
+  if (ok) {
+    .cmems$logged_in <- TRUE
+    return(invisible(TRUE))
+  }
+  if (!interactive() && !is.function(getOption("copernicopia.input"))) {
+    stop("You are not logged in to Copernicus Marine, so nothing can be downloaded. ",
+         "Run cmems_login() in an interactive R session, or cmems_login(username, password), ",
+         "then try again.", call. = FALSE)
+  }
+  cmems_login(ask = TRUE)
 }

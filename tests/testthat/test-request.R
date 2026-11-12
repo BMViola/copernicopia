@@ -102,3 +102,78 @@ test_that("time columns of different types convert to UTC milliseconds", {
                ms + 13 * 3600000)
   expect_error(copernicopia:::.as_utc_ms(1:3), "time column")
 })
+
+test_that("text times are read one value at a time, strictly year-month-day", {
+  ms <- copernicopia:::.as_utc_ms
+  day <- 1752537600000 # 2025-07-15 00:00 UTC
+  h <- 3600000
+  # A column mixing dates with and without a time of day, which is how
+  # write.csv() writes times that fall on midnight
+  expect_equal(ms(c("2025-07-15 23:00:00", "2025-07-16", "2025-07-16 01:00:00")),
+               day + c(23, 24, 25) * h)
+  # Other spellings of a time
+  expect_equal(ms(c("2025-07-15T13:00", "2025/07/15 13:00:00", "2025-07-15 13:00:00.5",
+                    "2025-7-15 9:05")),
+               day + c(13 * h, 13 * h, 13 * h + 500, 9 * h + 5 * 60000))
+  # Time zones are applied, not ignored
+  expect_equal(ms(c("2025-07-15T13:00:00Z", "2025-07-15T13:00:00+10:00", "2025-07-15 13:00 -0930",
+                    "2025-07-15T13:00:00+10", "2025-07-15 13:00:00 UTC")),
+               day + c(13, 3, 22.5, 3, 13) * h)
+  # Missing values stay missing
+  expect_equal(ms(c("2025-07-15", NA, "", "  ")), c(day, NA, NA, NA))
+  expect_equal(ms(factor(c("2025-07-15", NA))), c(day, NA))
+  expect_equal(ms(character(0)), numeric(0))
+  # Anything else is an error rather than a guess
+  expect_error(ms("15/07/2025"),
+               "Could not read 1 of the 1 time value\\(s\\), for example \"15/07/2025\"")
+  expect_error(ms(c("2025-07-15", "15-07-2025", "07/15/2025")), "Could not read 2 of the 3")
+  expect_error(ms("2025-07-15 13:00 AEST"), "Could not read")
+  expect_error(ms("2025-02-30"), "Could not read")
+  expect_error(ms("2025-07-15 25:00"), "Could not read")
+  expect_error(ms("20250715"), "year-month-day")
+})
+
+test_that("hourly times survive a round trip through a CSV file", {
+  obs <- data.frame(time = as.POSIXct("2025-07-15 22:00", tz = "UTC") + 3600 * 0:4)
+  f <- withr::local_tempfile(fileext = ".csv")
+  write.csv(obs, f, row.names = FALSE)
+  back <- read.csv(f)
+  expect_type(back$time, "character")
+  expect_equal(copernicopia:::.as_utc_ms(back$time), copernicopia:::.as_utc_ms(obs$time))
+})
+
+test_that("request dates must be dates written year-month-day", {
+  cat_df <- fake_catalogue()
+  make <- function(time) {
+    cmems_request(list("synth_chl_P1M" = "CHL"), c(100, 160), c(-70, -30), time, catalogue = cat_df)
+  }
+  july <- as.Date(c("2025-07-01", "2025-07-31"))
+  expect_equal(make(c("2025-07-01", "2025-07-31"))$time, july)
+  expect_equal(make(july)$time, july)
+  expect_equal(make(c("2025/07/01", "2025-07-31T12:00:00Z"))$time, july)
+  expect_equal(make(as.POSIXct(c("2025-07-01 08:00", "2025-07-31 08:00"), tz = "UTC"))$time, july)
+  # Day/month/year used to be read as the years 1 and 31
+  expect_error(make(c("01/07/2025", "31/07/2025")), "Could not read 2 of the 2 `time` value")
+  expect_error(make(c(20250701, 20250731)), "`time`")
+  expect_error(make(c("2025-07-31", "2025-07-01")), "start <= end")
+  expect_error(make("2025-07-01"), "c\\(start, end\\)")
+  expect_error(make(c("2025-07-01", NA)), "c\\(start, end\\)")
+})
+
+test_that("depth ranges are checked for datasets with a depth axis", {
+  cat_df <- fake_catalogue()
+  make <- function(depth, datasets = list("synth_phy_P1D-m" = "thetao")) {
+    cmems_request(datasets, c(100, 160), c(-70, -30), c("2025-07-01", "2025-07-31"),
+                  depth = depth, catalogue = cat_df)
+  }
+  expect_equal(make(c(0, 50))$datasets[[1]]$depth, c(0, 50))
+  expect_equal(make(c(5L, 5L))$datasets[[1]]$depth, c(5, 5))
+  expect_equal(make(list(other = c(0, 5)))$datasets[[1]]$depth, c(0, 1))
+  expect_error(make(c(10, 0)), "`depth` for 'synth_phy_P1D-m' must be c\\(min, max\\)")
+  expect_error(make(5), "`depth`")
+  expect_error(make("surface"), "`depth`")
+  expect_error(make(c(0, NA)), "`depth`")
+  expect_error(make(list("synth_phy_P1D-m" = c(10, 0))), "`depth`")
+  # Datasets without a depth axis ignore it, so it is not checked for them
+  expect_null(make(c(10, 0), list("synth_chl_P1M" = "CHL"))$datasets[[1]]$depth)
+})

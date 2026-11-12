@@ -22,3 +22,15 @@ test_that("step labels read naturally", {
   expect_equal(copernicopia:::.step_label(c(1, 3, 24, 24 * 8, 24 * 30.4, 24 * 365, NA)),
                c("hourly", "3-hourly", "daily", "8-day", "monthly", "yearly", "unknown step"))
 })
+
+test_that("dates typed at a prompt must be year-month-day", {
+  old <- options(copernicopia.input = script_input(c("15/07/2025", "July 15", "2025-07-15")))
+  on.exit(options(old))
+  out <- capture.output(d <- copernicopia:::.ask_date("Start date (YYYY-MM-DD): "))
+  expect_equal(d, as.Date("2025-07-15"))
+  expect_equal(sum(grepl("Please enter a date as YYYY-MM-DD", out)), 2)
+  options(copernicopia.input = script_input(c("", "2025/08/02")))
+  capture.output(d2 <- copernicopia:::.ask_date("End date: ", as.Date("2025-08-01")))
+  capture.output(d3 <- copernicopia:::.ask_date("End date: ", as.Date("2025-08-01")))
+  expect_equal(c(d2, d3), as.Date(c("2025-08-01", "2025-08-02")))
+})

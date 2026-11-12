@@ -270,12 +270,19 @@ def _find_name(names, candidates):
     return None
 
 
-def _nearest_index(coord, values, tolerance=None):
+def _valid_step(step):
+    """Whether `step` is a usable grid step: a positive, finite number."""
+    return step is not None and bool(np.isfinite(step)) and step > 0
+
+
+def _nearest_index(coord, values, tolerance=None, step=None):
     """
     Index of the nearest coordinate value for each entry of `values`, or -1
     when the value is missing or further than `tolerance` from any coordinate.
     By default the tolerance is half a grid step, i.e. the point must fall
-    inside a grid cell.
+    inside a grid cell. A single coordinate has no spacing to measure a cell
+    by, so `step` (the grid step from the catalogue) is used instead; without
+    it, any value matches.
     """
     coord = np.asarray(coord, dtype=float)
     values = np.asarray(values, dtype=float)
@@ -288,7 +295,7 @@ def _nearest_index(coord, values, tolerance=None):
     if cs.size == 1:
         idx = np.zeros(values.shape, dtype=np.int64)
         if tolerance is None:
-            tolerance = np.inf
+            tolerance = 0.5 * float(step) * 1.001 if _valid_step(step) else np.inf
     else:
         pos = np.clip(np.searchsorted(cs, np.where(ok, values, cs[0])), 1, cs.size - 1)
         left, right = cs[pos - 1], cs[pos]
@@ -303,26 +310,30 @@ def _nearest_index(coord, values, tolerance=None):
     return out
 
 
-def _nearest_lon_index(lons, plon):
+def _nearest_lon_index(lons, plon, step=None):
     """
     Like _nearest_index for longitudes, whatever range the grid's longitudes
     are written in: -180 to 180, 0 to 360, or continuous across 180 (e.g. 170
     to 190, as the toolbox writes regions that cross 180). Points are moved to
     the grid's 360-degree window, and a point within half a cell of the window's
     far end is also tried one turn round, so the first and last columns of a
-    global grid meet.
+    global grid meet. `step` is the grid step from the catalogue, used when the
+    grid has a single column.
     """
     lons = np.asarray(lons, dtype=float)
     plon = np.asarray(plon, dtype=float)
     if lons.size == 0:
         return np.full(plon.shape, -1, dtype=np.int64)
-    step = float(np.median(np.abs(np.diff(np.sort(lons))))) if lons.size > 1 else 0.0
-    base = float(np.nanmin(lons)) - step / 2
+    if lons.size > 1:
+        cell = float(np.median(np.abs(np.diff(np.sort(lons)))))
+    else:
+        cell = float(step) if _valid_step(step) else 0.0
+    base = float(np.nanmin(lons)) - cell / 2
     moved = base + np.mod(plon - base, 360.0)
-    idx = _nearest_index(lons, moved)
+    idx = _nearest_index(lons, moved, step=step)
     missing = idx < 0
     if missing.any():
-        idx[missing] = _nearest_index(lons, moved[missing] - 360.0)
+        idx[missing] = _nearest_index(lons, moved[missing] - 360.0, step=step)
     return idx
 
 
@@ -382,6 +393,16 @@ def match_times(obs_ms, data_ms, time_step_hours=None, time_match="period"):
     return _nearest_index(data_ms, obs_ms, tolerance=step_h * 3_600_000.0)
 
 
+def _plain_nan(values):
+    """
+    A flat float array in which every missing value is NumPy's own NaN. R's NA
+    is a NaN of a different kind, which makes NumPy warn ("invalid value
+    encountered") when it is used in arithmetic.
+    """
+    arr = np.asarray(values, dtype=float).ravel()
+    return np.where(np.isnan(arr), np.nan, arr)
+
+
 def _file_times(path):
     with xr.open_dataset(path) as ds:
         name = "time" if "time" in ds.coords else None
@@ -400,10 +421,16 @@ def extract_points(
     depth=None,
     time_step_hours=None,
     time_match="period",
+    lon_step=None,
+    lat_step=None,
 ):
     """
     Values of `variables` at each (lon, lat, time[, depth]) point, taken from
     the nearest grid cell of the matching time step across `files`.
+
+    `lon_step` and `lat_step` are the grid steps from the catalogue. They are
+    only needed for a file with a single column or row, where the size of a
+    grid cell cannot be told from the file itself.
 
     Returns a dict of plain lists of floats: one per variable plus `matched_time_ms`,
     the dataset time step used for each point (NaN when the point could not be
@@ -413,13 +440,11 @@ def extract_points(
         files = [files]
     if isinstance(variables, str):
         variables = [variables]
-    lon = np.asarray(lon, dtype=float).ravel()
-    lat = np.asarray(lat, dtype=float).ravel()
-    time_ms = np.asarray(time_ms, dtype=float).ravel()
+    lon = _plain_nan(lon)
+    lat = _plain_nan(lat)
+    time_ms = _plain_nan(time_ms)
     n = lon.size
-    obs_depth = (
-        np.full(n, np.nan) if depth is None else np.asarray(depth, dtype=float).ravel()
-    )
+    obs_depth = np.full(n, np.nan) if depth is None else _plain_nan(depth)
     result = {v: np.full(n, np.nan) for v in variables}
     matched = np.full(n, np.nan)
 
@@ -460,8 +485,8 @@ def extract_points(
                     "lat/lon grids are supported"
                 )
             lons = ds[lon_name].values.astype(float)
-            yi = _nearest_index(ds[lat_name].values, lat[sel])
-            xi = _nearest_lon_index(lons, lon[sel])
+            yi = _nearest_index(ds[lat_name].values, lat[sel], step=lat_step)
+            xi = _nearest_lon_index(lons, lon[sel], step=lon_step)
 
             depth_name = _find_name(list(ds.dims), _DEPTH_NAMES)
             di = None
