@@ -327,7 +327,7 @@ extract_product <- function(pts, spec, prefix, lag_days = 0) {
 
 ## Software
 
-    Run on 03 November 2026
-    Copernicopia 1.0.0
+    Run on 12 November 2026
+    Copernicopia 1.1.0
     copernicusmarine 2.5.0
     R version 4.5.2 (2025-10-31 ucrt)
