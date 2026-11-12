@@ -142,6 +142,10 @@ cmems_login <- function(username = NULL, password = NULL, ask = interactive()) {
   invisible(TRUE)
 }
 
+# interactive(), as a function of the package's own so the tests can stand in
+# for it (they may themselves be run in an interactive session)
+.interactive <- function() interactive()
+
 # Called before anything is downloaded or checked. Without saved credentials
 # the toolbox would ask for a username itself, in the middle of a progress
 # line or, in the separate download process, not at all: every file would then
@@ -164,7 +168,7 @@ cmems_login <- function(username = NULL, password = NULL, ask = interactive()) {
     .cmems$logged_in <- TRUE
     return(invisible(TRUE))
   }
-  if (!interactive() && !is.function(getOption("copernicopia.input"))) {
+  if (!.interactive() && !is.function(getOption("copernicopia.input"))) {
     stop("You are not logged in to Copernicus Marine, so nothing can be downloaded. ",
          "Run cmems_login() in an interactive R session, or cmems_login(username, password), ",
          "then try again.", call. = FALSE)

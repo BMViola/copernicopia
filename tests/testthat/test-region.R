@@ -25,7 +25,12 @@ test_that("longitude ranges are read west to east, and may cross 180", {
 })
 
 test_that("ranges are described plainly", {
-  withr::local_locale(LC_CTYPE = "C.UTF-8")
+  # The degree sign needs a UTF-8 locale, which R on Windows has had since 4.2;
+  # elsewhere one is set for this test if the session's isn't
+  if (!isTRUE(l10n_info()[["UTF-8"]])) {
+    suppressWarnings(withr::local_locale(c(LC_CTYPE = "C.UTF-8"), .local_envir = environment()))
+  }
+  skip_if_not(isTRUE(l10n_info()[["UTF-8"]]), "needs a UTF-8 locale")
   label <- copernicopia:::.lon_label
   expect_equal(label(c(170, -170)), "170°E to 170°W, crossing 180° (20° wide)")
   expect_equal(label(c(100, 160.5)), "100°E to 160.5°E (60.5° wide)")

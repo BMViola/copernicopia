@@ -85,6 +85,9 @@ cmems_abort <- function(wait = 5) {
 
 # Only ever kill a process whose command line shows it is a worker, so a
 # process ID that has since been reused by another program is left alone.
+# `ps -ww` prints the whole command line: otherwise ps cuts it to the width
+# of the terminal (COLUMNS, which R sets in a terminal session), and a long
+# path to the worker would hide its name.
 .pid_is_worker <- function(pid) {
   cmd <- tryCatch(
     if (.Platform$OS.type == "windows") {
@@ -93,7 +96,7 @@ cmems_abort <- function(wait = 5) {
         shQuote(sprintf("(Get-CimInstance Win32_Process -Filter 'ProcessId=%d').CommandLine", pid))
       ), stdout = TRUE, stderr = FALSE))
     } else {
-      suppressWarnings(system2("ps", c("-p", pid, "-o", "args="), stdout = TRUE, stderr = FALSE))
+      suppressWarnings(system2("ps", c("-ww", "-p", pid, "-o", "args="), stdout = TRUE, stderr = FALSE))
     },
     error = function(e) character(0)
   )

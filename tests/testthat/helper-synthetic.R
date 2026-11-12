@@ -100,6 +100,11 @@ Sys.setenv(R_USER_CACHE_DIR = file.path(tempdir(), "user-cache"))
 # Copernicus Marine login to check (the check has its own tests)
 options(copernicopia.check_login = FALSE)
 
+# The tests read the download ticker from its messages. In an interactive
+# session (RStudio, say) it would otherwise be drawn in place on the console,
+# out of their sight; the tests of that drawing turn it on themselves
+options(copernicopia.live_progress = FALSE)
+
 # A stand-in for copernicusmarine.subset(), run by the real worker process.
 # Behaviour is set with environment variables (the worker inherits them):
 #   FAKE_DELAY    seconds per write step (3 steps per file)
@@ -157,6 +162,6 @@ use_fake_worker_toolbox <- function(env = parent.frame()) {
 }
 
 worker_alive <- function(pid) {
-  out <- suppressWarnings(system2("ps", c("-p", pid, "-o", "args="), stdout = TRUE, stderr = FALSE))
+  out <- suppressWarnings(system2("ps", c("-ww", "-p", pid, "-o", "args="), stdout = TRUE, stderr = FALSE))
   any(grepl("copernicopia_worker", out, fixed = TRUE))
 }

@@ -407,7 +407,8 @@ test_that("downloads stop with a clear message when not logged in", {
     },
     subset = function(...) stop("should not be reached")
   )
-  local_mocked_bindings(.cm = function() toolbox)
+  # As in a script, where nobody can be asked, even if the tests are run interactively
+  local_mocked_bindings(.cm = function() toolbox, .interactive = function() FALSE)
   out_dir <- withr::local_tempdir()
   req <- cmems_request(list("synth_phy_P1D-m" = "zos"), c(100, 160), c(-70, -30),
                        c("2025-07-01", "2025-07-02"), chunk = "day", out_dir = out_dir,
@@ -514,4 +515,21 @@ test_that("Windows' long-paths setting is only looked up when a path is too long
   dir <- withr::local_tempdir()
   expect_silent(copernicopia:::.warn_long_paths(file.path(dir, "a.nc"), windows = TRUE, long_ok = long_ok()))
   expect_false(looked)
+})
+
+test_that("a worker is recognised however narrow the terminal is", {
+  skip_on_os("windows")
+  # A command line much longer than the terminal is wide, as when the
+  # package is installed under a long path (R stands in for Python here)
+  long <- file.path(withr::local_tempdir(), strrep("library_", 12), "copernicopia_worker.R")
+  dir.create(dirname(long), recursive = TRUE)
+  writeLines("Sys.sleep(60)", long)
+  rscript <- file.path(R.home("bin"), "Rscript")
+  p <- processx::process$new(rscript, long, cleanup = TRUE)
+  on.exit(p$kill(), add = TRUE)
+  Sys.sleep(0.5)
+  withr::local_envvar(COLUMNS = "80")
+  expect_gt(nchar(paste(rscript, long)), 80)
+  expect_true(copernicopia:::.pid_is_worker(p$get_pid()))
+  expect_false(copernicopia:::.pid_is_worker(Sys.getpid()))
 })
